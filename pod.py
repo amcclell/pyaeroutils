@@ -3,8 +3,17 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from timeit import default_timer as timer
-import matlab
-import matlab.engine
+
+from importlib.util import find_spec
+matlabSpec = find_spec('matlab')
+if matlabSpec is not None:
+  foundMatlab = True
+else:
+  foundMatlab = False
+
+if foundMatlab:
+  import matlab
+  import matlab.engine
 
 def readSV(file: str):
   sv = np.loadtxt(file, skiprows=2)
@@ -304,12 +313,15 @@ def getStabilizedROM(romAero, nF, nS, nfd, tau, outputAll: bool = False, start: 
   k = nfd
   P = nF - nfd
 
-  if useMatlab:
+  if useMatlab and foundMatlab:
     eng = matlab.engine.start_matlab()
     cdir = eng.cd('/home/users/amcclell/matlab/cvx/')
     eng.cvx_setup(nargout=0)
     odir = eng.cd(cdir)
     #eng.run('/home/users/amcclell/matlab/cvx/cvx_startup.m', nargout=0)
+  elif useMatlab:
+    print('*** Warning: "matlab" module not found. Using cvxpy instead.', flush=True)
+    eng = None
   else:
     eng = None
 
