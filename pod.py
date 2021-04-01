@@ -27,7 +27,10 @@ def analyzeBasis(file: str, tol: float, verbose: bool = False, plot: bool = Fals
   ind = np.arange(sv.size)
 
   isTol = (1 - reng <= tol)
-  nV = ind[isTol][0] + 1
+  if isTol.size != 0:
+    nV = ind[isTol][0] + 1
+  else:
+    nV = ind[-1]
 
   if verbose:
     print('File: {}'.format(file))
