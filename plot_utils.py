@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 def plotLong(t: np.ndarray, x: np.ndarray, v: np.ndarray, titles: np.ndarray = None,
              xlabels: np.ndarray = None, ylabels: np.ndarray = None, lineType: str = '-',
-             legends: np.ndarray = None, axes: np.ndarray = None):
+             legends: np.ndarray = None, suptitle: str = None, axes: np.ndarray = None):
   """Plot longitudinal postion and velocity (translations and rotations).
 
   Parameters
@@ -28,6 +28,8 @@ def plotLong(t: np.ndarray, x: np.ndarray, v: np.ndarray, titles: np.ndarray = N
   legends: numpy-array (default = None)
      Array of line labels (shape = (6, )) for x-displacement, z-displacement, their
      velocities, y-rotation, its rotation rate. If None, default labels are used.
+  suptitle: string (default = None)
+     Super-title to go over subplots (ommitted if None)
   axes: numpy-array (default = None)
      Array of matplotlib.pyplot axes (shape = (4, )) to be used for plotting. If None,
      new axes are generated.
@@ -85,11 +87,14 @@ def plotLong(t: np.ndarray, x: np.ndarray, v: np.ndarray, titles: np.ndarray = N
   ax4.set_title(titles[3])
   ax4.legend()
 
+  if suptitle is not None:
+     fig.suptitle(suptitle)
+
   return fig, ax1, ax2, ax3, ax4
 
 def plotLat(t: np.ndarray, x: np.ndarray, v: np.ndarray, titles: np.ndarray = None,
              xlabels: np.ndarray = None, ylabels: np.ndarray = None, lineType: str = '-',
-             legends: np.ndarray = None, axes: np.ndarray = None):
+             legends: np.ndarray = None, suptitle: str = None, axes: np.ndarray = None):
   """Plot lateral postion and velocity (translations and rotations).
 
   Parameters
@@ -116,6 +121,8 @@ def plotLat(t: np.ndarray, x: np.ndarray, v: np.ndarray, titles: np.ndarray = No
      Array of line labels (shape = (6, )) for y-displacement, its velocity,
      x-rotation, z-rotation, and their rotation rates. If None, default labels
      are used.
+  suptitle: string (default = None)
+     Super-title to go over subplots (ommitted if None)
   axes: numpy-array (default = None)
      Array of matplotlib.pyplot axes (shape = (4, )) to be used for plotting. If None,
      new axes are generated.
@@ -173,11 +180,14 @@ def plotLat(t: np.ndarray, x: np.ndarray, v: np.ndarray, titles: np.ndarray = No
   ax4.set_title(titles[3])
   ax4.legend()
 
+  if suptitle is not None:
+     fig.suptitle(suptitle)
+
   return fig, ax1, ax2, ax3, ax4
 
 def plotLatLong(t: np.ndarray, x: np.ndarray, v: np.ndarray, titles: np.ndarray = None,
                 xlabels: np.ndarray = None, ylabels: np.ndarray = None, lineType: str = '-',
-                legends: np.ndarray = None, axes: np.ndarray = None):
+                legends: np.ndarray = None, suptitle: str = None, axes: np.ndarray = None):
   """Plot lateral and longitudinal postion and velocity (translations and rotations).
 
   Parameters
@@ -203,6 +213,8 @@ def plotLatLong(t: np.ndarray, x: np.ndarray, v: np.ndarray, titles: np.ndarray 
   legends: numpy-array (default = None)
      Array of line labels (shape = (12, )) for longitudinal and lateral quantities
      (see descriptions of plotLong and plotLat). If None, default labels are used.
+  suptitle: string (default = None)
+     Super-title to go over subplots (ommitted if None)
   axes: numpy-array (default = None)
      Array of matplotlib.pyplot axes (shape = (8, )) to be used for plotting. First
      four are for the longitudinal plots, second four for the lateral plots. If None,
@@ -252,12 +264,12 @@ def plotLatLong(t: np.ndarray, x: np.ndarray, v: np.ndarray, titles: np.ndarray 
   
   fig1, ax11, ax12, ax13, ax14 = plotLong(t, x[:, [0, 2, 4]], v[:, [0, 2, 4]],
                                           longTitles, longXLabels, longYLabels, lineType,
-                                          longLegends, longAxes)
+                                          longLegends, suptitle, longAxes)
   longAxes = np.array([ax11, ax12, ax13, ax14], dtype=object)
 
   fig2, ax21, ax22, ax23, ax24 = plotLat(t, x[:, [1, 3, 5]], v[:, [1, 3, 5]],
                                          latTitles, latXLabels, latYLabels, lineType,
-                                         latLegends, latAxes)
+                                         latLegends, suptitle, latAxes)
   latAxes = np.array([ax21, ax22, ax23, ax24], dtype=object)
 
   return longAxes, latAxes
