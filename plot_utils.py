@@ -346,7 +346,7 @@ def plotForces(t: np.ndarray, F: np.ndarray, titles: np.ndarray = None,
 
 def plotForcesSeparate(t: np.ndarray, F: np.ndarray, titles: np.ndarray = None,
                 xlabels: np.ndarray = None, ylabels: np.ndarray = None, color: str = 'b',
-                lineType: str = '-', legend: np.ndarray = None, axes: np.ndarray = None):
+                lineType: str = '-', legend: str = None, axes: np.ndarray = None):
   """Plot lateral postion and velocity (translations and rotations).
 
   Parameters
