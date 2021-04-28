@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from timeit import default_timer as timer
+from warning import warn
 
 from importlib.util import find_spec
 matlabSpec = find_spec('matlab')
@@ -158,6 +159,32 @@ def extractSubROMCtrlSurf(romAero, dFdX, ctrlSurfBlock, nF, nS, nFNew):
   ctrlSurfBlockNew = ctrlSurfBlock[ind, :]
   return romAeroNew, dFdXNew, ctrlSurfBlockNew
 
+def extractOperators(romAero, nF, nS):
+  '''return H, B, C, P, K
+  Assumes that no mass matrix inverse has been applied.'''
+  H = -romAero[0:nF, 0:nF]
+  B = -romAero[0:nF, nF:(nF + nS)]
+  C = -romAero[0:nF, (nF + nS):(nF + 2 * nS)]
+  P = romAero[nF:(nF + nS), 0:nF]
+  K = -romAero[nF:(nF + nS), (nF + nS):(nF + 2 * nS)]
+  return H, B, C, P, K
+
+def extractOperatorsdFdX(romAero, dFdX, nF, nS):
+  '''return H, B, C, P, K, Py
+  Assumes that no mass matrix inverse has been applied.'''
+  H, B, C, P, K = extractOperators(romAero, nF, nS)
+  Py = dFdX.copy()
+  return H, B, C, P, K, Py
+
+def extractOperatorsCtrlSurf(romAero, dFdX, ctrlSurfBlock, nF, nS):
+  '''return H, B, C, P, K, Py, Bcs, Ccs, Pycs
+  Assumes that no mass matrix inverse has been applied.'''
+  H, B, C, P, K, Py = extractOperatorsdFdX(romAero, dFdX, nF, nS)
+  nCS = ctrlSurfBlock.shape[1] // 2
+  Bcs = -ctrlSurfBlock[0:nF, 0:nCS]
+  Ccs = -ctrlSurfBlock[0:nF, nCS:]
+  Pycs = ctrlSurfBlock[nF:(nF + nS), nCS:]
+
 def writeROMAero(file, romAero, nF, nS):
   np.savetxt(file, romAero, fmt='% .16e', header='{} {}'.format(nF, nS), comments='')
 
@@ -279,10 +306,75 @@ def forcedCtrlSurf(A, B, x0, nCtrl, nCtrlSurf, dt, nT, amp, freq, modes):
 
   return t, x, u
 
-def stabilizeROM(Ma, Me, k, p, tau, eng = None):
+def forcedLinearizedROM(H: np.ndarray, B: np.ndarray, C: np.ndarray, P: np.ndarray, dt: float, nT: int, amp: np.ndarray, freq: np.ndarray,
+                        dFdX: np.ndarray = None, nCtrlSurf: int = 0, Bcs: np.ndarray = None, Ccs: np.ndarray = None, ampcs: np.ndarray = None,
+                        freqcs: np.ndarray = None, dFdXcs: np.ndarray = None):
+  t = np.arange(0, nT + 1, dtype=np.float) * dt
+  w = np.zeros((nT + 1, H.shape[1]), dtype=np.float)
+  dF = np.empty((nT + 1, B.shape[1]), dtype=np.float)
+  u = np.zeros((nT + 1, B.shape[1]), dtype=np.float)
+  udot = np.zeros((nT + 1, B.shape[1]), dtype=np.float)
+  omg = 2 * np.pi * freq
+  u[0] = f(amp, omg, t[0])
+  udot[0] = dfdt(amp, omg, t[0])
+  u[1] = f(amp, omg, t[1])
+  udot[1] = dfdt(amp, omg, t[1])
+
+  if nCtrlSurf > 0:
+    if Bcs is None or Ccs is None or ampcs is None or freqcs is None:
+      raise ValueError('Missing input for nCtrlSurf > 0 ({})'.format(nCtrlSurf))
+    if dFdX is not None and dFdXcs is None:
+      warn("dFdX is included but dFdXcs is not. Consider including dFdXcs as well.")
+    ucs = np.zeros((nT + 1, Bcs.shape[1]), dtype=np.float)
+    ucsdot = np.zeros((nT + 1, Bcs.shape[1]), dtype=np.float)
+    omgcs = 2 * np.pi * freqcs
+    ucs[0] = f(ampcs, omgcs, t[0])
+    ucsdot[0] = dfdt(ampcs, omgcs, t[0])
+    ucs[1] = f(ampcs, omgcs, t[1])
+    ucsdot[1] = dfdt(ampcs, omgcs, t[1])
+  else:
+    ucs = None
+    ucsdot = None
+
+  fexp = lambda omg, t : np.exp(-(omg * omg) * (t * t))
+  f = lambda amp, omg, t : amp * (1 - fexp(omg, t)) * np.sin(omg * t)
+  dfdt = lambda amp, omg, t : amp * ((2. * omg * omg) * t * fexp(omg, t) * np.sin(omg * t) + omg * (1 - fexp(omg, t)) * np.cos(omg * t))
+
+  op0 = np.eye(H.shape[0]) / dt + H
+  op = (1.5 / dt) * np.eye(H.shape[0]) + H
+
+  rhs = w[0] / dt - B @ udot[1] - C @ u[1]
+  if nCtrlSurf > 0:
+    rhs -= Bcs @ ucsdot[1] + Ccs @ ucs[1]
+  w[1] = np.linalg.solve(op0, rhs)
+  dF[1] = P @ w[1]
+  if dFdX is not None:
+    dF[1] += dFdX @ u[1]
+  if nCtrlSurf > 0 and dFdXcs is not None:
+    dF[1] += dFdXcs @ ucs[1]
+
+  coeffn = 2.0 / dt
+  coeffnm1 = 0.5 / dt
+  for i in np.arange(2, nT + 1):
+    u[i] = f(amp, omg, t[i])
+    udot[i] = dfdt(amp, omg, t[i])
+    rhs = coeffn * w[i - 1] - coeffnm1 * w[i - 2] - B @ udot[i] - C @ u[i]
+    if nCtrlSurf > 0:
+      ucs[i] = f(ampcs, omgcs, t[i])
+      ucsdot[i] = dfdt(ampcs, omgcs, t[i])
+      rhs -= Bcs @ ucsdot[i] + Ccs @ ucs[i]
+    w[i] = np.linalg.solve(op, rhs)
+    dF[i] = P @ w[i]
+    if dFdX is not None:
+      dF[i] += dFdX @ u[i]
+    if nCtrlSurf > 0 and dFdXcs is not None:
+      dF[i] += dFdXcs @ ucs[i]
+
+return t, w, dF, u, udot, ucs, ucsdot
+
+def stabilizeROM(Ma, Me, k, p, tau, mu, eng = None):
   if eng is None:
     Q = np.eye(k, dtype=np.float)
-    mu = 1.e-8
     P11 = cp.Variable((k, k), symmetric=True)
     P22 = cp.Variable((p, p), symmetric=True)
     P12 = cp.Variable((k, p))
@@ -303,14 +395,15 @@ def stabilizeROM(Ma, Me, k, p, tau, eng = None):
     kM = float(k)
     pM = float(p)
     tauM = float(tau)
+    muM = float(mu)
 
-    XM, statusM = eng.stabilizeROM(MaM, MeM, kM, pM, tauM, nargout=2)
+    XM, statusM = eng.stabilizeROM(MaM, MeM, kM, pM, tauM, muM, nargout=2)
     X = np.array(XM._data.tolist())
     X = X.reshape(XM.size, order='F')
     status = str(statusM).lower()
     return X, status
 
-def getStabilizedROM(romAero, nF, nS, nfd, tau, outputAll: bool = False, start: float = None, useMatlab: bool = False):
+def getStabilizedROM(romAero, nF, nS, nfd, tau, mu: float = 1e-8, outputAll: bool = False, start: float = None, useMatlab: bool = False):
   if start is None:
     start = timer()
   k = nfd
@@ -332,7 +425,8 @@ def getStabilizedROM(romAero, nF, nS, nfd, tau, outputAll: bool = False, start: 
     Me = np.eye(k + p, k)
     Ma = romAero[0:(k + p), 0:k]
 
-    X, status = stabilizeROM(Ma, Me, k, p, tau, eng)
+    X, status = stabilizeROM(Ma, Me, k, p, tau, mu, eng)
+    print('k + p = {}, status = {}'.format(k + p, status), flush=True)
 
     if status not in ["infeasible", "unbounded"]:
       break
@@ -343,7 +437,7 @@ def getStabilizedROM(romAero, nF, nS, nfd, tau, outputAll: bool = False, start: 
     eng.quit()
   
   if status in ["infeasible", "unbounded"]:
-    raise RuntimeError("*** Error: not stable matrix found")
+    raise RuntimeError("*** Error: no stable matrix found")
 
   Es = X.T @ Me
   n = nfd + 2 * nS
@@ -352,22 +446,24 @@ def getStabilizedROM(romAero, nF, nS, nfd, tau, outputAll: bool = False, start: 
   romAeroS[0:nfd, nfd:(nfd + 2 * nS)] = X.T @ romAero[0:(k + p), nF:(nF + 2 * nS)]
   ids = np.ix_(np.arange(nF, nF + 2 * nS), np.concatenate((np.arange(nfd), np.arange(nF, nF + 2 * nS))))
   romAeroS[nfd:, :] = romAero[ids]
+  romAeroS[0:nfd, :] = np.linalg.solve(Es, romAeroS[0:nfd, :])
 
   if outputAll:
-    return romAeroS, X, p
+    return romAeroS, X, p, Es
   return romAeroS
 
-def getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, outputAll: bool = False, start: float = None, useMatlab: bool = False):
-  romAeroS, X, p = getStabilizedROM(romAero, nF, nS, nfd, tau, True, start, useMatlab)
+def getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, mu: float = 1e-8, outputAll: bool = False, start: float = None, useMatlab: bool = False):
+  romAeroS, X, p, Es = getStabilizedROM(romAero, nF, nS, nfd, tau, True, start, useMatlab)
   dFdXS = dFdX.copy()
   if outputAll:
-    return romAeroS, dFdXS, X, p
+    return romAeroS, dFdXS, X, p, Es
   return romAeroS, dFdXS
 
-def getStabilizedROMCtrlSurf(romAero, nF, nS, nfd, tau, dFdX, ctrlSurfBlock, start: float = None, useMatlab: bool = False):
-  romAeroS, dFdXS, X, p = getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, True, start, useMatlab)
+def getStabilizedROMCtrlSurf(romAero, nF, nS, nfd, tau, dFdX, ctrlSurfBlock, mu: float = 1e-8, start: float = None, useMatlab: bool = False):
+  romAeroS, dFdXS, X, p, Es = getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, True, start, useMatlab)
   ids = np.concatenate((np.arange(nfd), np.arange(nF, (nF + 2 * nS))))
   ctrlSurfBlockS = ctrlSurfBlock[ids, :]
   ctrlSurfBlockS[0:nfd, :] = X.T @ ctrlSurfBlockS[0:(nfd + p), :]
+  ctrlSurfBlockS[0:nfd, :] = np.linalg.solve(Es, ctrlSurfBlockS[0:nfd, :])
 
   return romAeroS, dFdXS, ctrlSurfBlockS
