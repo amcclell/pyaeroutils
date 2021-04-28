@@ -370,7 +370,7 @@ def forcedLinearizedROM(H: np.ndarray, B: np.ndarray, C: np.ndarray, P: np.ndarr
     if nCtrlSurf > 0 and dFdXcs is not None:
       dF[i] += dFdXcs @ ucs[i]
 
-return t, w, dF, u, udot, ucs, ucsdot
+  return t, w, dF, u, udot, ucs, ucsdot
 
 def stabilizeROM(Ma, Me, k, p, tau, mu, eng = None):
   if eng is None:
