@@ -183,6 +183,7 @@ def extractOperatorsCtrlSurf(romAero, dFdX, ctrlSurfBlock, nF, nS):
   Bcs = -ctrlSurfBlock[0:nF, 0:nCS]
   Ccs = -ctrlSurfBlock[0:nF, nCS:]
   Pycs = ctrlSurfBlock[nF:(nF + nS), nCS:]
+  return H, B, C, P, K, Py, Bcs, Ccs, Pycs
 
 def writeROMAero(file, romAero, nF, nS):
   np.savetxt(file, romAero, fmt='% .16e', header='{} {}'.format(nF, nS), comments='')
@@ -310,7 +311,7 @@ def forcedLinearizedROM(H: np.ndarray, B: np.ndarray, C: np.ndarray, P: np.ndarr
                         freqcs: np.ndarray = None, dFdXcs: np.ndarray = None):
   t = np.arange(0, nT + 1, dtype=np.float) * dt
   w = np.zeros((nT + 1, H.shape[1]), dtype=np.float)
-  dF = np.empty((nT + 1, B.shape[1]), dtype=np.float)
+  dF = np.zeros((nT + 1, B.shape[1]), dtype=np.float)
   u = np.zeros((nT + 1, B.shape[1]), dtype=np.float)
   udot = np.zeros((nT + 1, B.shape[1]), dtype=np.float)
 
