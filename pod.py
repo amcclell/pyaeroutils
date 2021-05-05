@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from timeit import default_timer as timer
+import pyaeroutils.xpost_utils as xpu
 
 from importlib.util import find_spec
 matlabSpec = find_spec('matlab')
@@ -158,31 +159,45 @@ def extractSubROMCtrlSurf(romAero, dFdX, ctrlSurfBlock, nF, nS, nFNew):
   ctrlSurfBlockNew = ctrlSurfBlock[ind, :]
   return romAeroNew, dFdXNew, ctrlSurfBlockNew
 
-def extractOperators(romAero, nF, nS):
+def extractOperators(romAero, nF, nS, nFNew = None):
   '''return H, B, C, P, K
   Assumes that no mass matrix inverse has been applied.'''
-  H = -romAero[0:nF, 0:nF]
-  B = -romAero[0:nF, nF:(nF + nS)]
-  C = -romAero[0:nF, (nF + nS):(nF + 2 * nS)]
-  P = romAero[nF:(nF + nS), 0:nF]
+  if nFNew = None:
+    nFNew = nF
+  H = -romAero[0:nFNew, 0:nFNew]
+  B = -romAero[0:nFNew, nF:(nF + nS)]
+  C = -romAero[0:nFNew, (nF + nS):(nF + 2 * nS)]
+  P = romAero[nF:(nF + nS), 0:nFNew]
   K = -romAero[nF:(nF + nS), (nF + nS):(nF + 2 * nS)]
   return H, B, C, P, K
 
-def extractOperatorsdFdX(romAero, dFdX, nF, nS):
+def extractOperatorsdFdX(romAero, dFdX, nF, nS, nFNew = None):
   '''return H, B, C, P, K, Py
   Assumes that no mass matrix inverse has been applied.'''
-  H, B, C, P, K = extractOperators(romAero, nF, nS)
-  Py = dFdX.copy()
+  if nFNew = None:
+    nFNew = nF
+  H, B, C, P, K = extractOperators(romAero, nF, nS, nFNew)
+  if dFdX is not None:
+    Py = dFdX.copy()
+  else:
+    Py = None
   return H, B, C, P, K, Py
 
-def extractOperatorsCtrlSurf(romAero, dFdX, ctrlSurfBlock, nF, nS):
+def extractOperatorsCtrlSurf(romAero, dFdX, ctrlSurfBlock, nF, nS, nFNew = None):
   '''return H, B, C, P, K, Py, Bcs, Ccs, Pycs
   Assumes that no mass matrix inverse has been applied.'''
-  H, B, C, P, K, Py = extractOperatorsdFdX(romAero, dFdX, nF, nS)
-  nCS = ctrlSurfBlock.shape[1] // 2
-  Bcs = -ctrlSurfBlock[0:nF, 0:nCS]
-  Ccs = -ctrlSurfBlock[0:nF, nCS:]
-  Pycs = ctrlSurfBlock[nF:(nF + nS), nCS:]
+  if nFNew = None:
+    nFNew = nF
+  H, B, C, P, K, Py = extractOperatorsdFdX(romAero, dFdX, nF, nS, nFNew)
+  if ctrlSurfBlock is not None:
+    nCS = ctrlSurfBlock.shape[1] // 2
+    Bcs = -ctrlSurfBlock[0:nFNew, 0:nCS]
+    Ccs = -ctrlSurfBlock[0:nFNew, nCS:]
+    Pycs = ctrlSurfBlock[nF:(nF + nS), nCS:]
+  else:
+    Bcs = None
+    Ccs = None
+    Pycs = None
   return H, B, C, P, K, Py, Bcs, Ccs, Pycs
 
 def writeROMAero(file, romAero, nF, nS):
@@ -468,3 +483,98 @@ def getStabilizedROMCtrlSurf(romAero, nF, nS, nfd, tau, dFdX, ctrlSurfBlock, mar
   ctrlSurfBlockS[0:nfd, :] = np.linalg.solve(Es, ctrlSurfBlockS[0:nfd, :])
 
   return romAeroS, dFdXS, ctrlSurfBlockS
+
+def splitSnapshotsByModes(snaps: np.ndarray, nSteps: int, nModesSep: int, sepModes: np.ndarray = None):
+  # This assumes frequency domain training where 0 rad/s is included
+  if sepModes is not None:
+    raise ValueError("sepModes != None is not currently implemented.")
+  
+  sSize = snaps.shape[0]
+  nModes = sSize // (2 * nSteps + 1)
+  if nModesSep >= nModes:
+    print('*** Warning: Too many modes to separate requested ({} >= {} modes)'.format(nModesSep, nModes))
+    snaps1 = None
+    snaps2 = None
+    return snaps1, snaps2
+  
+  nModes2 = nModes - nModesSep
+  sSize1 = nModesSep * (2 * nSteps + 1)
+  sSize2 = nModes2 * (2 * nSteps + 1)
+
+  real1 = np.arange(nModes, sSize, 2 * nModes)
+  imag1 = np.arange(nModes + 1, sSize, 2 * nModes)
+  i1 = np.arange(nModesSep)
+
+  for i in range(nModesSep):
+    i1 = np.concatenate((i1, real1 + 2 * i, imag1 + 2 * i))
+  
+  i1 = np.sort(i1)
+  if i1.size != sSize1:
+    raise ValueError('Number of column indices does not match expected size ({} vs {})'.format(i1.size, sSize1))
+  i2 = np.setdiff1d(np.arange(sSize), i1, assume_unique=True)
+
+  snaps1 = snaps[i1, :, :]
+  snaps2 = snaps[i2, :, :]
+  return snaps1, snaps2
+
+def writePODVecs(fN, fNSV, header, rob, sv, dim):
+  robXP = xpu.undoReshape(rob, dim)
+  robXP = np.concatenate((robXP[0].reshape((1, robXP.shape[1], robXP.shape[2])), robXP), axis=0)
+  tags = np.concatenate((np.array([sv.size]), sv * sv))
+
+  xpu.writeXpost(fN, header, tags, robXP)
+
+  with open(fNSV, "w") as f:
+    f.write('%d\nSingular values\n' % sv.size)
+    for i in range(sv.size):
+      f.write('%e ' % sv[i])
+    f.write('\n')
+
+def buildDualBasisROMAero(f1: str, f2: str):
+  # File 2 is assumed to be the ROM built for the control surfaces
+  rom1, dFdX1, ctrlSurf1, nF1, nS1 = readROMAeroCtrlSurf(f1)
+  rom2, dFdX2, ctrlSurf2, nF2, nS2 = readROMAeroCtrlSurf(f2)
+
+  if nS1 != nS2:
+    raise ValueError('Structural subsystems size mismatch ({} vs {} for ROM 1 and ROM 2'.format(nS1, nS2))
+  
+  isdFdX = dFdX1 is not None and dFdX2 is not None
+  if isdFdX:
+    if np.linalg.norm(dFdX1 - dFdX2) > 1e-14:
+      raise ValueError('dFdX is not equivalent for ROM 1 and ROM 2 (not affected by fluid reduction, so should be equivalent)')
+  
+  isCtrlSurf = ctrlSurf1 is not None and ctrlSurf2 is not None
+  if isCtrlSurf:
+    if np.linalg.norm(ctrlSurf1[nF1:] - ctrlSurf2[nF2:]) > 1e-14:
+      raise ValueError('ctrlSurf structural blocks are not equivalent for ROM 1 and ROM 2')
+
+  H1, B1, C1, P1, K1, Py1, Bcs1, Ccs1, Pycs1 = extractOperatorsCtrlSurf(rom1, dFdX1, ctrlSurf1, nF1, nS1)
+  H2, B2, C2, P2, K2, Py2, Bcs2, Ccs2, Pycs2 = extractOperatorsCtrlSurf(rom2, dFdX2, ctrlSurf2, nF2, nS2)
+  if isCtrlSurf:
+    nCS = Pycs2.shape[1]
+
+  if np.linalg.norm(K1 - K2) > 1e-14:
+    raise ValueError('Reduced frequencies are not equivalent for ROM 1 and ROM 2')
+
+  rom = np.block([[-H1, np.zeros((nF1, nF2), dtype=np.float), -B1, -C1],
+                  [np.zeros((nF2, nF1), dtype=np.float), -H2, np.zeros((nF2, nS1), dtype=np.float), np.zeros((nF2, nS1), dtype=np.float)],
+                  [P1, P2, np.zeros((nS1, nS1), dtype=np.float), -K1],
+                  [np.zeros((nS1, nF1), dtype=np.float), np.zeros((nS1, nF2), dtype=np.float), np.eye(nS1, dtype=np.float), np.zeros((nS1, nS1), dtype=np.float)]])
+  
+  if isdFdX:
+    dFdX = dFdX1.copy()
+  else:
+    dFdX = None
+
+  if isCtrlSurf:
+    ctrlSurf = np.block([[np.zeros((nF1, 2 * nCS), dtype=np.float)],
+                         [-Bcs2, -Ccs2],
+                         [np.zeros((nS1, nCS), dtype=np.float), Pycs2],
+                         [np.zeros((nS1, 2 * nCS), dtype=np.float)]])
+  else:
+    ctrlSurf = None
+  
+  nF = nF1 + nF2
+  nS = nS1
+
+  return rom, dFdX, ctrlSurf, nF, nS

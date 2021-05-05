@@ -240,7 +240,10 @@ def reshapeXpost(input: np.ndarray):
 
 def undoReshape(input: np.ndarray, nC: int):
   nV, nT = input.shape
-  return input.reshape((nV, nT / nC, nC), order='C')
+  nN = nT // nC
+  if nN - (nT / nC) != 0:
+    raise ValueError('Number of components ({}) does not lead to an integer number of nodes ({})'.format(nC, nT / nC))
+  return input.reshape((nV, nN, nC), order='C')
 
 def writeXpost(filename: str, header, tags, output):
   with open(filename, "w") as f:
