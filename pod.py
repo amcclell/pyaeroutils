@@ -162,7 +162,7 @@ def extractSubROMCtrlSurf(romAero, dFdX, ctrlSurfBlock, nF, nS, nFNew):
 def extractOperators(romAero, nF, nS, nFNew = None):
   '''return H, B, C, P, K
   Assumes that no mass matrix inverse has been applied.'''
-  if nFNew = None:
+  if nFNew is None:
     nFNew = nF
   H = -romAero[0:nFNew, 0:nFNew]
   B = -romAero[0:nFNew, nF:(nF + nS)]
@@ -174,7 +174,7 @@ def extractOperators(romAero, nF, nS, nFNew = None):
 def extractOperatorsdFdX(romAero, dFdX, nF, nS, nFNew = None):
   '''return H, B, C, P, K, Py
   Assumes that no mass matrix inverse has been applied.'''
-  if nFNew = None:
+  if nFNew is None:
     nFNew = nF
   H, B, C, P, K = extractOperators(romAero, nF, nS, nFNew)
   if dFdX is not None:
@@ -186,7 +186,7 @@ def extractOperatorsdFdX(romAero, dFdX, nF, nS, nFNew = None):
 def extractOperatorsCtrlSurf(romAero, dFdX, ctrlSurfBlock, nF, nS, nFNew = None):
   '''return H, B, C, P, K, Py, Bcs, Ccs, Pycs
   Assumes that no mass matrix inverse has been applied.'''
-  if nFNew = None:
+  if nFNew is None:
     nFNew = nF
   H, B, C, P, K, Py = extractOperatorsdFdX(romAero, dFdX, nF, nS, nFNew)
   if ctrlSurfBlock is not None:
