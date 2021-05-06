@@ -6,7 +6,7 @@ from timeit import default_timer as timer
 import pyaeroutils.xpost_utils as xpu
 
 from importlib.util import find_spec
-matlabSpec = find_spec('matlab')
+matlabSpec = find_spec('matlab.engine')
 if matlabSpec is not None:
   foundMatlab = True
 else:
