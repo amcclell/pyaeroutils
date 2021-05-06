@@ -5,16 +5,12 @@ import os
 from timeit import default_timer as timer
 import pyaeroutils.xpost_utils as xpu
 
-from importlib.util import find_spec
-matlabSpec = find_spec('matlab.engine')
-if matlabSpec is not None:
-  foundMatlab = True
-else:
-  foundMatlab = False
-
-if foundMatlab:
+try:
   import matlab
   import matlab.engine
+  foundMatlab = True
+except ModuleNotFoundError:
+  foundMatlab = False
 
 def readSV(file: str):
   sv = np.loadtxt(file, skiprows=2)
