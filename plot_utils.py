@@ -40,7 +40,7 @@ def plotLong(t: np.ndarray, x: np.ndarray, v: np.ndarray, titles: np.ndarray = N
   ax1, ax2, ax3, ax4: matplotlib.pyplot axes (for plots in order listed for titles)
   """
   if axes is None:
-    fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4)
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, constrained_layout=True)
   else:
     ax1, ax2, ax3, ax4 = tuple(axes)
     fig = ax1.get_figure()
@@ -133,7 +133,7 @@ def plotLat(t: np.ndarray, x: np.ndarray, v: np.ndarray, titles: np.ndarray = No
   ax1, ax2, ax3, ax4: matplotlib.pyplot axes (for plots in order listed for titles)
   """
   if axes is None:
-    fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4)
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, constrained_layout=True)
   else:
     ax1, ax2, ax3, ax4 = tuple(axes)
     fig = ax1.get_figure()
@@ -310,7 +310,7 @@ def plotForces(t: np.ndarray, F: np.ndarray, titles: np.ndarray = None,
   ax1, ax2: matplotlib.pyplot axes (for plots in order listed for titles)
   """
   if axes is None:
-    fig, (ax1, ax2) = plt.subplots(1, 2)
+    fig, (ax1, ax2) = plt.subplots(1, 2, constrained_layout=True)
   else:
     ax1, ax2 = tuple(axes)
     fig = ax1.get_figure()
@@ -380,12 +380,12 @@ def plotForcesSeparate(t: np.ndarray, F: np.ndarray, titles: np.ndarray = None,
   ax1, ax2, ax3, ax4, ax5, ax6: matplotlib.pyplot axes (for plots in order listed for titles)
   """
   if axes is None:
-    fig1, ax1 = plt.subplots()
-    fig2, ax2 = plt.subplots()
-    fig3, ax3 = plt.subplots()
-    fig4, ax4 = plt.subplots()
-    fig5, ax5 = plt.subplots()
-    fig6, ax6 = plt.subplots()
+    fig1, ax1 = plt.subplots(constrained_layout=True)
+    fig2, ax2 = plt.subplots(constrained_layout=True)
+    fig3, ax3 = plt.subplots(constrained_layout=True)
+    fig4, ax4 = plt.subplots(constrained_layout=True)
+    fig5, ax5 = plt.subplots(constrained_layout=True)
+    fig6, ax6 = plt.subplots(constrained_layout=True)
   else:
     ax1, ax2, ax3, ax4, ax5, ax6 = tuple(axes)
 

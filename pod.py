@@ -12,15 +12,19 @@ try:
 except ModuleNotFoundError:
   foundMatlab = False
 
-def readSV(file: str):
-  sv = np.loadtxt(file, skiprows=2)
+def readSV(file: str, isSVD: bool = True):
+  if isSVD:
+    sv = np.loadtxt(file, skiprows=2)
+  else:
+    R = np.loadtxt(file, skiprows=1)
+    sv = np.sqrt(np.abs(np.diag(R)))
   eng = sv * sv
   reng = np.cumsum(eng / np.sum(eng))
 
   return sv, eng, reng
 
-def analyzeBasis(file: str, tol: float, verbose: bool = False, plot: bool = False):
-  sv, eng, reng = readSV(file)
+def analyzeBasis(file: str, tol: float, verbose: bool = False, plot: bool = False, isSVD: bool = True):
+  sv, eng, reng = readSV(file, isSVD)
   ind = np.arange(sv.size)
 
   isTol = (1 - reng <= tol)
@@ -88,23 +92,36 @@ def readROMAeroCtrlSurf(file: str):
       raise ValueError('Shape mismatch for ctrlSurfBlock: ctrlSurfBlock.shape[0] = {}, romAero.shape[0] = {}'.format(ctrlSurfBlock.shape[0], romAero.shape[0]))
   return romAero, dFdX, ctrlSurfBlock, nF, nS
 
-def checkStability(mat):
+def checkStability(mat, output_largest_real: bool = False):
   ev = np.linalg.eigvals(mat)
-  if np.any(np.real(ev) >= 0.):
-    return False
+  rp = np.real(ev)
+  if np.any(rp >= 0.):
+    isStable = False
   else:
-    return True
+    isStable = True
+  if output_largest_real:
+    return isStable, rp.max()
+  else:
+    return isStable
 
-def checkSubROMStability(romAero, nF, gamma, rhoref, Pref, Vref):
+def checkSubROMStability(romAero, nF, gamma, rhoref, Pref, Vref, output_largest_real: bool = False):
+  # Dividing by constant ensures exact same process that occurs in AERO-F occurs here (though really
+  # the constant doesn't matter for stability purposes)
   cref = np.sqrt(gamma * Pref / rhoref)
   Mref = Vref / cref
   cnst = Mref * np.sqrt(gamma)
   H = romAero[0:nF, 0:nF] / cnst
 
   isStable = np.empty((nF, ), dtype=np.bool)
-  for i in range(nF):
-    isStable[i] = checkStability(H[0:(i + 1), 0:(i + 1)])
-  return isStable
+  if output_largest_real:
+    largestReal = np.empty((nF, ), dtype=np.float)
+    for i in range(nF):
+      isStable[i], largestReal[i] = checkStability(H[0:(i + 1), 0:(i + 1)], output_largest_real)
+    return isStable, largestReal
+  else:
+    for i in range(nF):
+      isStable[i] = checkStability(H[0:(i + 1), 0:(i + 1)])
+    return isStable
 
 def findClosestStable(isStable, nV, nT):
   ind = np.arange(nT)[isStable] + 1
