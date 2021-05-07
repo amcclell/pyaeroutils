@@ -499,27 +499,47 @@ def getStabilizedROMCtrlSurf(romAero, nF, nS, nfd, tau, dFdX, ctrlSurfBlock, mar
 
 def splitSnapshotsByModes(snaps: np.ndarray, nSteps: int, nModesSep: int, sepModes: np.ndarray = None):
   # This assumes frequency domain training where 0 rad/s is included
-  if sepModes is not None:
-    raise ValueError("sepModes != None is not currently implemented.")
-  
   sSize = snaps.shape[0]
   nModes = sSize // (2 * nSteps + 1)
+
+  real0 = np.arange(nModes, sSize, 2 * nModes)
+  imag0 = np.arange(nModes + 1, sSize, 2 * nModes)
+
+  if sepModes is not None:
+    nSeps = sepModes.shape[0]
+    snapsSep = np.empty((nSeps, ), dtype=object)
+
+    for i in range(nSeps):
+      nM = sepModes[i].shape[0]
+      nS = nM * (2 * nSteps + 1)
+      
+      inds = np.array([], dtype=np.int)
+      for j in range(nM):
+        m = sepModes[i][j]
+        if m >= nModes:
+          raise ValueError('Mode ID exceeds number of modes ({} vs {})'.format(m + 1, nModes))
+        inds = np.concatenate((inds, np.array([m], dtype=np.int), real0 + 2 * m, imag0 + 2 * m))
+      
+      inds = np.sort(inds)
+      if inds.size != nS:
+        raise ValueError('More snapshots requested ({}) than expected ({}) for group {}'.format(inds.size, nS, i))
+      
+      snapsSep[i] = snaps[inds, :, :]
+
+    return snapsSep
+  
+  # This is included for backwards compatibility only; the above code is more flexible and does the same thing
   if nModesSep >= nModes:
-    print('*** Warning: Too many modes to separate requested ({} >= {} modes)'.format(nModesSep, nModes))
-    snaps1 = None
-    snaps2 = None
-    return snaps1, snaps2
+    raise ValueError('Requested equal number or more modes ({} vs {})'.format(nModesSep, nModes))
   
   nModes2 = nModes - nModesSep
   sSize1 = nModesSep * (2 * nSteps + 1)
   sSize2 = nModes2 * (2 * nSteps + 1)
 
-  real1 = np.arange(nModes, sSize, 2 * nModes)
-  imag1 = np.arange(nModes + 1, sSize, 2 * nModes)
   i1 = np.arange(nModesSep)
 
   for i in range(nModesSep):
-    i1 = np.concatenate((i1, real1 + 2 * i, imag1 + 2 * i))
+    i1 = np.concatenate((i1, real0 + 2 * i, imag0 + 2 * i))
   
   i1 = np.sort(i1)
   if i1.size != sSize1:
