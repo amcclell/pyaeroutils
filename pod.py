@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import os
 from timeit import default_timer as timer
 import pyaeroutils.xpost_utils as xpu
+from scipy.linalg import block_diag
 
 try:
   import matlab
@@ -610,4 +611,164 @@ def buildDualBasisROMAero(f1: str, f2: str):
   nF = nF1 + nF2
   nS = nS1
 
+  return rom, dFdX, ctrlSurf, nF, nS
+
+def buildMultiBasisROMAero(fNs: np.ndarray, mIDs: np.ndarray, isCS: np.ndarray = None,
+                           nFDes: np.ndarray = None):
+  '''Combine multiple ROMs in a blocking fashion, i.e. assume that each ROM reduces the following
+  equation
+
+  A\dot{w}_i + Hw_i + B_m[:, mID[i]]\dot{y}_i + C_m[:, mID[i]]y_i = 0
+
+  where m = RBM if isCS[i] = False, m = CS otherwise; then, the block ROM is formed by forming the
+  following block operators
+
+  A_r = blkdiag(A_{r,i}), H_r = blkdiag(H_{r,i}), B_r = blkdiag(B_{r,i}), C_r = blkdiag(C_{r,i})
+  B_{r,CS} = blkdiag(B_{r,CS,i}), C_{r,CS} = blkdiag(C_{r,CS,i})
+
+  where A_{r,i} is identity, H_{r,i} is the reduced fluid Jacobian for each ROM, B_{r,i} = B_{r,CS,i} = 0,
+  C_{r,i} = C_{r,CS,i} = 0 for all columns that correspond to modes not including in the training for basis
+  i (i.e. for all modes, matrices not included in mIDs[i] and specified by isCS[i])
+
+  If nFDes is not None, the entries specify the desired size of the fluid subsystem.
+
+  '''
+  nFiles = fNs.shape[0]
+  nMG = mIDs.shape[0]
+  if nFiles != nMG:
+    raise ValueError('Number of file names ({}) does not equal number of mode ID groups ({})'.format(nFiles, nMG))
+  if isCS is not None:
+    nICS = isCS.shape[0]
+    if nMG != nICS:
+      raise ValueError('Number of mode ID groups ({}) does not equal number of RBM/CS identifiers ({})'.format(nMG, nICS))
+  else:
+    nICS = np.zeros((nMG, ), dtype=bool)
+  if nFDes is not None:
+    nnF = nFDes.shape[0]
+    if nnF != nFiles:
+      raise ValueError('Number of desired fluid ROM sizes ({}) does not equal number of file names ({})'.format(nnF, nFiles))
+  else:
+    nFDes = np.full((nFiles, ), None)
+
+  roms = np.empty((nFiles, ), dtype=object)
+  dFdXs = np.empty_like(roms)
+  ctrlSurfs = np.empty_like(roms)
+  nFs = np.empty((nFiles, ), dtype=np.int)
+
+  Hs = np.empty_like(roms)
+  Bs = np.empty_like(roms)
+  Cs = np.empty_like(roms)
+  Ps = np.empty_like(roms)
+  Ks = np.empty_like(roms)
+  Pys = np.empty_like(roms)
+  Bcss = np.empty_like(roms)
+  Ccss = np.empty_like(roms)
+  Pycss = np.empty_like(roms)
+
+  roms[0], dFdXs[0], ctrlSurfs[0], nFs[0], nS = readROMAeroCtrlSurf(fNs[0])
+  if nFDes[0] is not None:
+    if nFDes[0] > nFs[0]:
+      print('*** Warning: desired fluid ROM size ({}) larger than maximum size ({}) for ROM 0. Choosing maximum size.'.format(nFDes[0], nFs[0]))
+      nFDes[0] = nFs[0]
+  Hs[0], Bs[0], Cs[0], Ps[0], Ks[0], Pys[0], Bcss[0], Ccss[0], Pycss[0] = extractOperatorsCtrlSurf(roms[0], dFdXs[0], ctrlSurfs[0], nFs[0], nS, nFDes[0])
+
+  if dFdXs[0] is not None:
+    isdFdX = True
+  else:
+    isdFdX = False
+  
+  if ctrlSurfs[0] is not None:
+    nCS = ctrlSurfs[0].shape[1] // 2
+  else:
+    nCS = 0
+  
+  mNS = np.arange(nS)
+  mCS = np.arange(nCS)
+
+  if not isCS[0]:
+    im = np.setdiff1d(mNS, mIDs[0])
+    Bs[0][:, im] = np.zeros((Bs[0].shape[0], im.size), dtype=np.float)
+    Cs[0][:, im] = np.zeros((Cs[0].shape[0], im.size), dtype=np.float)
+    Bcss[0] = np.zeros((Hs[0].shape[0], nCS), dtype=np.float)
+    Ccss[0] = np.zeros((Hs[0].shape[0], nCS), dtype=np.float)
+  elif nCS != 0 and isCS[0]:
+    im = np.setdiff1d(mCS, mIDs[0])
+    Bcss[0][:, im] = np.zeros((Bcss[0].shape[0], im.size), dtype=np.float)
+    Ccss[0][:, im] = np.zeros((Ccss[0].shape[0], im.size), dtype=np.float)
+    Bs[0] = np.zeros((Hs[0].shape[0], nS), dtype=np.float)
+    Cs[0] = np.zeros((Hs[0].shape[0], nS), dtype=np.float)
+  else:
+    raise ValueError('Mode Group 0 is set to "Control Surface" but there are no control surfaces')
+
+  for i in np.arange(1, nFiles):
+    roms[i], dFdXs[i], ctrlSurfs[i], nFs[i], tmpnS = readROMAeroCtrlSurf(fNs[i])
+
+    if tmpnS != nS:
+      raise ValueError('Number of structural modes in {} ({}) do not match number in {} ({})'.format(fNs[i], tmpnS, fNs[0], nS))
+    
+    if isdFdX and dFdXs[i] is not None:
+      if np.linalg.norm(dFdXs[i] - dFdXs[0]) > 1e-14:
+        raise ValueError('dFdX is not equivalent for ROM {} and ROM {}'.format(fNs[i], fNs[0]))
+    
+    if ctrlSurfs[i] is not None:
+      tmpnCS = ctrlSurfs[i].shape[1] // 2
+      if nCS != tmpnCS:
+        raise ValueError('ROM {} has {} control surfaces, but ROM {} has {}'.format(fNs[i], tmpnCS, fNs[0], nCS))
+    elif nCS != 0:
+      raise ValueError('ROM {} has 0 control surfaces, but ROM {} has {}'.format(fNs[i], fNs[0], nCS))
+
+    if nFDes[i] is not None:
+      if nFDes[i] > nFs[i]:
+        print('*** Warning: desired fluid ROM size ({}) larger than maximum size ({}) for ROM {}. Choosing maximum size.'.format(nFDes[i], nFs[i], i))
+        nFDes[i] = nFs[i]
+    Hs[i], Bs[i], Cs[i], Ps[i], Ks[i], Pys[i], Bcss[i], Ccss[i], Pycss[i] = extractOperatorsCtrlSurf(roms[i], dFdXs[i], ctrlSurfs[i], nFs[i], tmpnS, nFDes[i])
+
+    if nS != 0:
+      if np.linalg.norm(Ks[i] - Ks[0]) > 1e-14:
+        raise ValueError('K is not equivalent for ROM {} and ROM {}'.format(fNs[i], fNs[0]))
+    
+    if nCS != 0:
+      if np.linalg.norm(Pycss[i] - Pycss[0]) > 1e-14:
+        raise ValueError('Pycs is not equivalent for ROM {} and ROM {}'.format(fNs[i], fNs[0]))
+
+    if not isCS[i]:
+      im = np.setdiff1d(mNS, mIDs[i])
+      Bs[i][:, im] = np.zeros((Bs[i].shape[0], im.size), dtype=np.float)
+      Cs[i][:, im] = np.zeros((Cs[i].shape[0], im.size), dtype=np.float)
+      Bcss[i] = np.zeros((Hs[i].shape[0], nCS), dtype=np.float)
+      Ccss[i] = np.zeros((Hs[i].shape[0], nCS), dtype=np.float)
+    elif nCS != 0 and isCS[i]:
+      im = np.setdiff1d(mCS, mIDs[i])
+      Bcss[i][:, im] = np.zeros((Bcss[i].shape[0], im.size), dtype=np.float)
+      Ccss[i][:, im] = np.zeros((Ccss[i].shape[0], im.size), dtype=np.float)
+      Bs[i] = np.zeros((Hs[0].shape[0], nS), dtype=np.float)
+      Cs[i] = np.zeros((Hs[0].shape[0], nS), dtype=np.float)
+    else:
+      raise ValueError('Mode Group {} is set to "Control Surface" but there are no control surfaces'.format(i))
+    
+  H = block_diag(*Hs.tolist())
+  B = np.block(Bs.reshape((nFiles, 1)).tolist())
+  C = np.block(Cs.reshape((nFiles, 1)).tolist())
+  P = np.block(Ps.tolist())
+  Bcs = np.block(Bcss.reshape((nFiles, 1)).tolist())
+  Ccs = np.block(Ccss.reshape((nFiles, 1)).tolist())
+
+  nF = H.shape[1]
+  zNS = np.zeros((nS, nS), dtype=np.float)
+  zW = np.zeros((nS, nF), dtype=np.float)
+  iNS = np.eye(nS, dtype=np.float)
+  rom = np.block([[-H, -B, -C],
+                  [P, zNS, -Ks[0]],
+                  [zW, iNS, zNS]])
+  
+  dFdX = Pys[0]
+
+  if nCS != 0:
+    zCS = np.zeros((nS, nCS), dtype=np.float)
+    ctrlSurf = np.block([[-Bcs, -Ccs],
+                         [zCS, Pycss[0]],
+                         [zCS, zCS]])
+  else:
+    ctrlSurf = None
+  
   return rom, dFdX, ctrlSurf, nF, nS
