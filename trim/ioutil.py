@@ -51,6 +51,14 @@ def getSteadySensitivitiesOfForces(file: str):
   dFdX = dFdS[iDX, -7:-1]
   return dFdA, dFdX
 
+def getSteadyModalForcesAndSensitivities(file: str):
+  dMFdS = np.atleast_2d(np.loadtxt(file, skiprows=1))
+  iAoA = (dMFdS[:, 1] == 3)
+  iDX = (dMFdS[:, 1] == 1)
+  MF = dMFdS[0, 2:8]
+  dMFdA = dMFdS[iAoA, -6:].squeeze()
+  dMFdX = dMFdS[iDX, -6:]
+  return MF, dMFdA, dMFdX
 
 def copyAndRename(origin: str, name: str, ext: str, destination: str, idO: int, idD: int):
   idOs = ''
