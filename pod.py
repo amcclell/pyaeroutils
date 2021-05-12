@@ -741,8 +741,8 @@ def buildMultiBasisROMAero(fNs: np.ndarray, mIDs: np.ndarray, isCS: np.ndarray =
       im = np.setdiff1d(mCS, mIDs[i])
       Bcss[i][:, im] = np.zeros((Bcss[i].shape[0], im.size), dtype=np.float)
       Ccss[i][:, im] = np.zeros((Ccss[i].shape[0], im.size), dtype=np.float)
-      Bs[i] = np.zeros((Hs[0].shape[0], nS), dtype=np.float)
-      Cs[i] = np.zeros((Hs[0].shape[0], nS), dtype=np.float)
+      Bs[i] = np.zeros((Hs[i].shape[0], nS), dtype=np.float)
+      Cs[i] = np.zeros((Hs[i].shape[0], nS), dtype=np.float)
     else:
       raise ValueError('Mode Group {} is set to "Control Surface" but there are no control surfaces'.format(i))
     
