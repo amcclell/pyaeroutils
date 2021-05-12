@@ -1,4 +1,6 @@
-# TODO: make more general
+# This serves more as a template, as opposed to truly meaning to be general, as it will probably be faster to just make the modifications
+# needed on a per simulation basis
+
 def writeFluidFile(name: str, id: int, alpha: float, h: float, v: float, sol: str, restart: str):
   # Writes an AERO-F 2 input file for steady analysis
   # Inputs: name = filename (string)
