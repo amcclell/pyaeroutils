@@ -4,8 +4,30 @@ import sys
 from io import TextIOWrapper
 
 
-def safeCall(cmd: str):
-  output = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE)
+def checkSrun(log: str):
+  '''Checks log file to see if SLURM failed to confirm an active allocation
+  '''
+  with open(log) as f:
+    l1 = f.readline().strip()
+    l2 = f.readline().strip()
+  
+  if ('srun: error: Unable to confirm allocation for job' in l1 or
+      'srun: Check SLURM_JOB_ID environment variable. Expired or invalid job' in l2):
+    return True
+  else:
+    return False
+
+def safeCall(cmd: str, log: str = None):
+  rerun = True
+  while rerun:
+    output = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE)
+    if output.returncode:
+      if log is not None:
+        rerun = checkSrun(log)
+      else:
+        rerun = False
+    else:
+      rerun = False
   if output.returncode:
     print('*** Non-zero exit code from "{}"'.format(cmd))
     exit(output.returncode)

@@ -421,7 +421,7 @@ def stabilizeROM(Ma, Me, k, p, tau, mu, eng = None, **kwargs):
     return X, prob.status
   else:
     MaM = matlab.double(Ma.tolist())
-    MeM = matlab.double(Ma.tolist())
+    MeM = matlab.double(Me.tolist())
     kM = float(k)
     pM = float(p)
     tauM = float(tau)
@@ -433,7 +433,9 @@ def stabilizeROM(Ma, Me, k, p, tau, mu, eng = None, **kwargs):
     status = str(statusM).lower()
     return X, status
 
-def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float = 1e-8, outputAll: bool = False, start: float = None, useMatlab: bool = False, **kwargs):
+def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float = 1e-8,
+                     outputAll: bool = False, start: float = None, useMatlab: bool = False,
+                     acceptInaccurate: bool = False, **kwargs):
   if start is None:
     start = timer()
   k = nfd
@@ -444,12 +446,21 @@ def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float 
     cdir = eng.cd('/home/users/amcclell/matlab/cvx/')
     eng.cvx_setup(nargout=0)
     odir = eng.cd(cdir)
+    successMsgs = ["solved"]
+    if acceptInaccurate:
+      successMsgs.extend(["inaccurate/solved"])
     #eng.run('/home/users/amcclell/matlab/cvx/cvx_startup.m', nargout=0)
   elif useMatlab:
     print('*** Warning: "matlab" module not found. Using cvxpy instead.', flush=True)
     eng = None
+    successMsgs = ["optimal"]
+    if acceptInaccurate:
+      successMsgs.extend(["optimal_inaccurate"])
   else:
     eng = None
+    successMsgs = ["optimal"]
+    if acceptInaccurate:
+      successMsgs.extend(["optimal_inaccurate"])
 
   for p in np.arange(1, P + 1):
     Me = np.eye(k + p, k)
@@ -458,15 +469,15 @@ def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float 
     X, status = stabilizeROM(Ma, Me, k, p, tau, mu, eng, **kwargs)
     print('k + p = {}, status = {}'.format(k + p, status), flush=True)
 
-    if status not in ["infeasible", "unbounded"]:
+    if status in successMsgs:
       break
     else:
-      print('Problem infeasible. Incrementing p. Elapsed Time: {}'.format(timer() - start))
+      print('Problem infeasible/solution tolerance not met. Incrementing p. Elapsed Time: {}'.format(timer() - start))
 
   if useMatlab:
     eng.quit()
   
-  if status in ["infeasible", "unbounded"]:
+  if status not in successMsgs:
     raise RuntimeError("*** Error: no stable matrix found")
 
   Es = X.T @ Me
@@ -482,18 +493,22 @@ def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float 
     return romAeroS, X, p, Es
   return romAeroS
 
-def getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin: float = 1e-8, mu: float = 1e-8, outputAll: bool = False, start: float = None, useMatlab: bool = False, **kwargs):
-  romAeroS, X, p, Es = getStabilizedROM(romAero, nF, nS, nfd, tau, margin, mu, True, start, useMatlab, **kwargs)
+def getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin: float = 1e-8, mu: float = 1e-8,
+                         outputAll: bool = False, start: float = None, useMatlab: bool = False,
+                         acceptInaccurate: bool = False, **kwargs):
+  romAeroS, X, p, Es = getStabilizedROM(romAero, nF, nS, nfd, tau, margin, mu, True, start, useMatlab, acceptInaccurate, **kwargs)
   dFdXS = dFdX.copy()
   if outputAll:
     return romAeroS, dFdXS, X, p, Es
   return romAeroS, dFdXS
 
-def getStabilizedROMCtrlSurf(romAero, nF, nS, nfd, tau, dFdX, ctrlSurfBlock, margin: float = 1e-8, mu: float = 1e-8, start: float = None, useMatlab: bool = False, **kwargs):
-  romAeroS, dFdXS, X, p, Es = getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin, mu, True, start, useMatlab, **kwargs)
+def getStabilizedROMCtrlSurf(romAero, nF, nS, nfd, tau, dFdX, ctrlSurfBlock, margin: float = 1e-8,
+                             mu: float = 1e-8, start: float = None, useMatlab: bool = False,
+                             acceptInaccurate: bool = False, **kwargs):
+  romAeroS, dFdXS, X, p, Es = getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin, mu, True, start, useMatlab, acceptInaccurate, **kwargs)
   ids = np.concatenate((np.arange(nfd), np.arange(nF, (nF + 2 * nS))))
   ctrlSurfBlockS = ctrlSurfBlock[ids, :]
-  ctrlSurfBlockS[0:nfd, :] = X.T @ ctrlSurfBlockS[0:(nfd + p), :]
+  ctrlSurfBlockS[0:nfd, :] = X.T @ ctrlSurfBlock[0:(nfd + p), :]
   ctrlSurfBlockS[0:nfd, :] = np.linalg.solve(Es, ctrlSurfBlockS[0:nfd, :])
 
   return romAeroS, dFdXS, ctrlSurfBlockS
