@@ -435,11 +435,12 @@ def stabilizeROM(Ma, Me, k, p, tau, mu, eng = None, **kwargs):
 
 def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float = 1e-8,
                      outputAll: bool = False, start: float = None, useMatlab: bool = False,
-                     acceptInaccurate: bool = False, **kwargs):
+                     acceptInaccurate: bool = False, maximum_its: bool = 10, **kwargs):
   if start is None:
     start = timer()
   k = nfd
   P = nF - nfd
+  it = 0
 
   if useMatlab and foundMatlab:
     eng = matlab.engine.start_matlab()
@@ -447,20 +448,23 @@ def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float 
     eng.cvx_setup(nargout=0)
     odir = eng.cd(cdir)
     successMsgs = ["solved"]
+    inaccurateMsgs = ["inaccurate/solved"]
     if acceptInaccurate:
-      successMsgs.extend(["inaccurate/solved"])
+      successMsgs.extend(inaccurateMsgs)
     #eng.run('/home/users/amcclell/matlab/cvx/cvx_startup.m', nargout=0)
   elif useMatlab:
     print('*** Warning: "matlab" module not found. Using cvxpy instead.', flush=True)
     eng = None
     successMsgs = ["optimal"]
+    inaccurateMsgs = ["optimal_inaccurate"]
     if acceptInaccurate:
-      successMsgs.extend(["optimal_inaccurate"])
+      successMsgs.extend(inaccurateMsgs)
   else:
     eng = None
     successMsgs = ["optimal"]
+    inaccurateMsgs = ["optimal_inaccurate"]
     if acceptInaccurate:
-      successMsgs.extend(["optimal_inaccurate"])
+      successMsgs.extend(inaccurateMsgs)
 
   for p in np.arange(1, P + 1):
     Me = np.eye(k + p, k)
@@ -473,12 +477,20 @@ def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float 
       break
     else:
       print('Problem infeasible/solution tolerance not met. Incrementing p. Elapsed Time: {}'.format(timer() - start))
+    
+    it += 1
+    if it == maximum_its:
+      break
+
 
   if useMatlab:
     eng.quit()
   
-  if status not in successMsgs:
-    raise RuntimeError("*** Error: no stable matrix found")
+  
+  if not acceptInaccurate and status in inaccurateMsgs:
+    print('*** Warning: Maximum iterations ({}) reached with only an inaccurate solution'.format(maximum_its))
+  elif status not in successMsgs and status not in inaccurateMsgs:
+    raise RuntimeError("*** Error: Maximum iterations ({}) reached with no stable matrix".format(maximum_its))
 
   Es = X.T @ Me
   n = nfd + 2 * nS
@@ -495,8 +507,8 @@ def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float 
 
 def getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin: float = 1e-8, mu: float = 1e-8,
                          outputAll: bool = False, start: float = None, useMatlab: bool = False,
-                         acceptInaccurate: bool = False, **kwargs):
-  romAeroS, X, p, Es = getStabilizedROM(romAero, nF, nS, nfd, tau, margin, mu, True, start, useMatlab, acceptInaccurate, **kwargs)
+                         acceptInaccurate: bool = False, maximum_its: bool = 10, **kwargs):
+  romAeroS, X, p, Es = getStabilizedROM(romAero, nF, nS, nfd, tau, margin, mu, True, start, useMatlab, acceptInaccurate, maximum_its, **kwargs)
   dFdXS = dFdX.copy()
   if outputAll:
     return romAeroS, dFdXS, X, p, Es
@@ -504,8 +516,8 @@ def getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin: float = 1e-8, 
 
 def getStabilizedROMCtrlSurf(romAero, nF, nS, nfd, tau, dFdX, ctrlSurfBlock, margin: float = 1e-8,
                              mu: float = 1e-8, start: float = None, useMatlab: bool = False,
-                             acceptInaccurate: bool = False, **kwargs):
-  romAeroS, dFdXS, X, p, Es = getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin, mu, True, start, useMatlab, acceptInaccurate, **kwargs)
+                             acceptInaccurate: bool = False, maximum_its: bool = 10, **kwargs):
+  romAeroS, dFdXS, X, p, Es = getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin, mu, True, start, useMatlab, acceptInaccurate, maximum_its, **kwargs)
   ids = np.concatenate((np.arange(nfd), np.arange(nF, (nF + 2 * nS))))
   ctrlSurfBlockS = ctrlSurfBlock[ids, :]
   ctrlSurfBlockS[0:nfd, :] = X.T @ ctrlSurfBlock[0:(nfd + p), :]
