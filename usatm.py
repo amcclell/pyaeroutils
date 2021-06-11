@@ -59,7 +59,9 @@ class USStandardAtmosphere(object):
     self.problem_T_conversion = 1.
     self.problem_Length_conversion = 1.
     self.problem_mu0_conversion = 1.
+    self.problem_mu_conversion = 1.
     self.problem_R_conversion = 1.
+    self.problem_kappa_conversion = 1.
 
     self.__initializeUSStandardAtmosphere()
     self.__setConversions()
@@ -104,7 +106,7 @@ class USStandardAtmosphere(object):
 
     # Convert US Standard Atmosphere output into system of units desired supported units are meters, inches and feet
     # conversions are from SI to desired units (so if meters is chosen, no conversions are necessary)
-    if self.altitude_unit is Unit.M:
+    if self.problem_unit is Unit.M:
       # Final Units:
       # Density: kg/m^3; Pressure: N/m^2; Temperature: Kelvin; Length: m; Sutherland's constant mu0: kg/m*s*K^(1/2);
       # Ideal gas constant: J/kg*Kelvin = m^2/s^2*K
@@ -114,7 +116,7 @@ class USStandardAtmosphere(object):
       self.problem_Length_conversion = 1.0
       self.problem_mu0_conversion = 1.0
       self.problem_R_conversion = 1.0
-    elif self.altitude_unit is Unit.IN:
+    elif self.problem_unit is Unit.IN:
       # Final Units: Note that 1 slinch = 12 slugs = 12 * 14.59390 kg
       # Density: slinch/in^3; Pressure: lbf/in^2 = slinch/in*s^2; Temperature: Rankine; Length: in; Sutherland's
       # constant mu0: slinch/in*s*R^(1/2); Ideal gas constant: in^2/s^2*R
@@ -123,8 +125,9 @@ class USStandardAtmosphere(object):
       self.problem_T_conversion = 1.8
       self.problem_Length_conversion = 1 / 2.54e-2
       self.problem_mu0_conversion = 2.54e-2 / (14.59390 * 12 * np.sqrt(1.8))
+      self.problem_mu_conversion = self.problem_mu0_conversion * np.sqrt(self.problem_T_conversion)
       self.problem_R_conversion = 1 / (np.power(2.54e-2, 2) * 1.8)
-    elif self.altitude_unit is Unit.FT:
+    elif self.problem_unit is Unit.FT:
       # Final Units:
       # Density: slug/ft^3; Pressure: lbf/ft^2 = slug/ft*s^2; Temperature: Rankine; Length: ft; Sutherland's constant
       # mu0: slug/ft*s*R^(1/2); Ideal gas constant: ft^2/s^2*R
@@ -133,9 +136,12 @@ class USStandardAtmosphere(object):
       self.problem_T_conversion = 1.8
       self.problem_Length_conversion = 1 / 3.048e-1
       self.problem_mu0_conversion = 3.048e-1 / (14.59390 * np.sqrt(1.8))
+      self.problem_mu_conversion = self.problem_mu0_conversion * np.sqrt(self.problem_T_conversion)
       self.problem_R_conversion = 1 / (np.power(3.048e-1, 2) * 1.8)
     else:
       raise ValueError("*** Error: Only ProblemUnit = {M, IN, FT} are currently accepted. Exiting...\n")
+    
+    self.problem_kappa_conversion = self.problem_R_conversion * self.problem_mu_conversion
 
   def resetConversions(self, alt_unit: Unit = Unit.M, prob_unit: Unit = Unit.M):
     self.altitude_unit = alt_unit
@@ -189,5 +195,13 @@ class USStandardAtmosphere(object):
     g = self.g0 * (self.r0 / (self.r0 + z_SI)) ** 2
     mu = self.beta * np.sqrt(T) / (1. + self.S / T)
     kappa = 2.64638e-3 * T ** (1.5) / (T + 245.4 * 10 ** (-12 / T ))
+
+    rho *= self.problem_rho_conversion
+    P *= self.problem_P_conversion
+    T *= self.problem_T_conversion
+    c *= self.problem_Length_conversion
+    g *= self.problem_Length_conversion
+    mu *= self.problem_mu_conversion
+    kappa *= self.problem_kappa_conversion
 
     return rho, P, T, c, g, mu, kappa
