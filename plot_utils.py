@@ -439,3 +439,110 @@ def plotForcesSeparate(t: np.ndarray, F: np.ndarray, titles: np.ndarray = None,
   ax6.legend()
 
   return ax1, ax2, ax3, ax4, ax5, ax6
+
+def plotGeneralizedCoordinates(t: np.ndarray, x: np.ndarray, v: np.ndarray, titles_d: np.ndarray = None,
+                               titles_v: np.ndarray = None, xlabels: np.ndarray = None, ylabels_d: np.ndarray = None,
+                               ylabels_v: np.ndarray = None, color: str = 'b', lineType: str = '-', lineLabel: str = None,
+                               axes_d: np.ndarray = None, axes_v: np.ndarray = None):
+  """Plot generalized coordinates.
+
+  Parameters
+  ----------
+  t: numpy-array
+    Array of time values (shape = (n, ))
+  x: numpy-array
+    Array of generalized coordinates (shape = (n, n_gc)), with n_gc the number of coordinates.
+  v: numpy-array
+    Array of generalized coordinate rates (shape = (n, n_gc)), in same order as above
+  titles_d: numpy-array (default = None)
+    Array of plot titles (shape = (n_gc, )) for genearlized coordinates. If None, default
+    titles are used.
+  titles_v: numpy-array (default = None)
+    Array of plot titles (shape = (n_gc, )) for genearlized coordinate rates. If None, default
+    titles are used.
+  xlabels: numpy-array (default = None)
+    Array of plot x-axis labels (shape = (n_gc, )). If None, default labels are used.
+  ylabels_d: numpy-array (default = None)
+    Array of plot y-axis labels (shape = (n_gc, )) for generalized coordinates. If None,
+    default labels are used.
+  ylabels_v: numpy-array (default = None)
+    Array of plot y-axis labels (shape = (n_gc, )) for generalized coordinate rates. If None,
+    default labels are used.
+  color: string (default = 'b')
+     String containing the line color (valid entries 'b', 'g', 'r', etc., same as plt.plot)
+  lineType: string (default = '-')
+    String containing the line dash type ('-', '.', '--', '-.')
+  lineLabel: string (default = None)
+    Line label to be used in each plot.
+  axes_d: numpy-array (default = None)
+    Array of matplotlib.pyplot axes (shape = (n_gc, )) to be used for plotting the
+    generalized coordinates. If None, new axes are generated.
+  axes_v: numpy-array (default = None)
+    Array of matplotlib.pyplot axes (shape = (n_gc, )) to be used for plotting the
+    generalized coordinate rates. If None, new axes are generated.
+
+  If only axes_d or axes_v is input, new axes are generated for all plots.
+
+  Returns
+  -------
+  axes_d: numpy.ndarray of matplotlib.pyplot axes of generalized coordinates
+  axes_v: numpy.ndarray of matplotlib.pyplot axes of generalized coordinate rates
+  """
+
+  nGC = x.shape[1]
+  if axes_d is None or axes_v is None:
+    axes_d = np.empty((nGC, ), dtype=object)
+    axes_v = np.empty((nGC, ), dtype=object)
+    for i in range(nGC):
+      axes_d[i] = plt.subplots(constrained_layout=True)[1]
+    for i in range(nGC):
+      axes_v[i] = plt.subplots(constrained_layout=True)[1]
+  else:
+    if axes_d.size != axes_v.size or axes_d.size != nGC:
+      raise ValueError('*** Error: Axes size must match x.shape[1] = {}'.format(nGC))
+
+  if v.shape[1] != nGC:
+    raise ValueError('*** Error: Shapes of x and v do not match.')
+
+  if titles_d is None:
+    titles_d = np.empty((nGC, ), dtype=object)
+    for i in range(nGC):
+      titles_d[i] = r'Generalized Coordinate $%d$' % (i + 1)
+
+  if titles_v is None:
+    titles_v = np.empty((nGC, ), dtype=object)
+    for i in range(nGC):
+      titles_v[i] = r'Generalized Coordinate $%d$ Rate' % (i + 1)
+
+  if xlabels is None:
+    xlabels = np.empty((nGC, ), dtype=object)
+    for i in range(nGC):
+      xlabels[i] = r'Time, (s)'
+
+  if ylabels_d is None:
+    ylabels_d = np.empty((nGC, ), dtype=object)
+    for i in range(nGC):
+      ylabels_d[i] = r'Generalized Coordinate'
+
+  if ylabels_v is None:
+    ylabels_v = np.empty((nGC, ), dtype=object)
+    for i in range(nGC):
+      ylabels_v[i] = r'Generalized Coordinate Rate (s$^{-1}$)'
+
+  for i in range(nGC):
+    ax = axes_d[i]
+    ax.plot(t, x[:, i], lineType + color, label=lineLabel)
+    ax.set_xlabel(xlabels[i])
+    ax.set_ylabel(ylabels_d[i])
+    ax.set_title(titles_d[i])
+    ax.legend()
+
+  for i in range(nGC):
+    ax = axes_v[i]
+    ax.plot(t, v[:, i], lineType + color, label=lineLabel)
+    ax.set_xlabel(xlabels[i])
+    ax.set_ylabel(ylabels_v[i])
+    ax.set_title(titles_v[i])
+    ax.legend()
+  
+  return axes_d, axes_v

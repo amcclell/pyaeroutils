@@ -5,6 +5,7 @@ import os
 from timeit import default_timer as timer
 import pyaeroutils.xpost_utils as xpu
 from scipy.linalg import block_diag
+from scipy.integrate import simps
 
 try:
   import matlab
@@ -255,7 +256,7 @@ def dimROMAeroCtrlSurf(rom, nF, nS, p_inf, rho_inf, dFdX = None, ctrlSurfBlock =
     ctrlSurfBlockDim = None
   return romDim, dFdXDim, ctrlSurfBlockDim
 
-def addMassAndStiffness(rom, mass, stiffness, nF, nS, dFdX = None, dFdCtrl = None, ctrlSurfBlock = None):
+def addMassAndStiffness(rom, mass, stiffness, nF, nS, dFdX = None, dFdCtrl = None, ctrlSurfBlock = None, stiffnessCS = None):
   A = rom.copy()
   A[nF:(nF + nS), (nF + nS):(nF + 2 * nS)] = -stiffness
   if dFdX is not None:
@@ -267,9 +268,14 @@ def addMassAndStiffness(rom, mass, stiffness, nF, nS, dFdX = None, dFdCtrl = Non
     nC = dFdCtrl.shape[1]
     B = np.zeros((nF + 2 * nS, nC), dtype=np.float)
     B[nF:(nF + nS), :] = dFdCtrl
+  else:
+    nC = 0
 
   if ctrlSurfBlock is not None:
+    nCS = ctrlSurfBlock.shape[1] // 2
     B = np.hstack((B, ctrlSurfBlock))
+    if stiffnessCS is not None:
+      B[nF:(nF + nS), (nC + nCS):] -= stiffnessCS
   
   if B.shape[1] != 0:
     B[nF:(nF + nS), :] = np.linalg.solve(mass, B[nF:(nF + nS), :])
@@ -279,14 +285,16 @@ def addMassAndStiffness(rom, mass, stiffness, nF, nS, dFdX = None, dFdCtrl = Non
   return A, B
 
 def checkMatrix(mat):
-  if len(mat.shape) < 2:
-    mat = np.atleast_2d(mat).T
+  if mat is not None:
+    if len(mat.shape) < 2:
+      mat = np.atleast_2d(mat).T
   return mat
 
 def readMatrixData(filename: str):
   mass = None
   stiffness = None
   dFdCtrl = None
+  stiffnessCS = None
   with open(filename) as f:
     lines = np.array(f.readlines())
     for line in lines[1:]:
@@ -299,12 +307,15 @@ def readMatrixData(filename: str):
         mass = np.loadtxt(file, skiprows=1)
       elif id == 2:
         dFdCtrl = np.loadtxt(file, skiprows=1)
+      elif id == 3:
+        stiffnessCS = np.loadtxt(file, skiprows=1)
       else:
         raise ValueError('Invalid matrix ID ({}) for file {} listed in file {}'.format(id, file, filename))
   mass = checkMatrix(mass)
   stiffness = checkMatrix(stiffness)
   dFdCtrl = checkMatrix(dFdCtrl)
-  return mass, stiffness, dFdCtrl
+  stiffnessCS = checkMatrix(stiffnessCS)
+  return mass, stiffness, dFdCtrl, stiffnessCS
   
 def forcedCtrlSurf(A, B, x0, nCtrl, nCtrlSurf, dt, nT, amp, freq, modes):
   t = np.arange(0, nT + 1, dtype=np.float) * dt
@@ -402,7 +413,7 @@ def forcedLinearizedROM(H: np.ndarray, B: np.ndarray, C: np.ndarray, P: np.ndarr
 
   return t, w, dF, u, udot, ucs, ucsdot
 
-def stabilizeROM(Ma, Me, k, p, tau, mu, eng = None, **kwargs):
+def stabilizeROM(Ma, Me, k, p, tau, mu, solver, opts, eng = None, **kwargs):
   if eng is None:
     Q = np.eye(k, dtype=np.float)
     P11 = cp.Variable((k, k), symmetric=True)
@@ -427,7 +438,7 @@ def stabilizeROM(Ma, Me, k, p, tau, mu, eng = None, **kwargs):
     tauM = float(tau)
     muM = float(mu)
 
-    XM, statusM = eng.stabilizeROM(MaM, MeM, kM, pM, tauM, muM, nargout=2)
+    XM, statusM = eng.stabilizeROM(MaM, MeM, kM, pM, tauM, muM, solver, opts, nargout=2)
     X = np.array(XM._data.tolist())
     X = X.reshape(XM.size, order='F')
     status = str(statusM).lower()
@@ -435,7 +446,8 @@ def stabilizeROM(Ma, Me, k, p, tau, mu, eng = None, **kwargs):
 
 def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float = 1e-8,
                      outputAll: bool = False, start: float = None, useMatlab: bool = False,
-                     acceptInaccurate: bool = False, maximum_its: bool = 10, **kwargs):
+                     acceptInaccurate: bool = False, maximum_its: int = 10, p0: int = 1,
+                     solver: str = 'sdpt3', opts: dict = {}, **kwargs):
   if start is None:
     start = timer()
   k = nfd
@@ -466,26 +478,27 @@ def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float 
     if acceptInaccurate:
       successMsgs.extend(inaccurateMsgs)
 
-  for p in np.arange(1, P + 1):
+  if p0 < 1:
+    p0 = 1
+
+  for p in np.arange(p0, P + 1):
     Me = np.eye(k + p, k)
     Ma = romAero[0:(k + p), 0:k] + margin * Me
 
-    X, status = stabilizeROM(Ma, Me, k, p, tau, mu, eng, **kwargs)
+    X, status = stabilizeROM(Ma, Me, k, p, tau, mu, solver, opts, eng, **kwargs)
     print('k + p = {}, status = {}'.format(k + p, status), flush=True)
 
     if status in successMsgs:
       break
     else:
-      print('Problem infeasible/solution tolerance not met. Incrementing p. Elapsed Time: {}'.format(timer() - start))
+      print('Problem infeasible/solution tolerance not met. Incrementing p. Elapsed Time: {}'.format(timer() - start), flush=True)
     
     it += 1
     if it == maximum_its:
       break
 
-
   if useMatlab:
     eng.quit()
-  
   
   if not acceptInaccurate and status in inaccurateMsgs:
     print('*** Warning: Maximum iterations ({}) reached with only an inaccurate solution'.format(maximum_its))
@@ -507,8 +520,11 @@ def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float 
 
 def getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin: float = 1e-8, mu: float = 1e-8,
                          outputAll: bool = False, start: float = None, useMatlab: bool = False,
-                         acceptInaccurate: bool = False, maximum_its: bool = 10, **kwargs):
-  romAeroS, X, p, Es = getStabilizedROM(romAero, nF, nS, nfd, tau, margin, mu, True, start, useMatlab, acceptInaccurate, maximum_its, **kwargs)
+                         acceptInaccurate: bool = False, maximum_its: bool = 10, p0: int = 1,
+                         solver: str = 'sdpt3', opts: dict = {}, **kwargs):
+  romAeroS, X, p, Es = getStabilizedROM(romAero, nF, nS, nfd, tau, margin, mu, True, start,
+                                        useMatlab, acceptInaccurate, maximum_its, p0, solver,
+                                        opts, **kwargs)
   dFdXS = dFdX.copy()
   if outputAll:
     return romAeroS, dFdXS, X, p, Es
@@ -516,8 +532,11 @@ def getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin: float = 1e-8, 
 
 def getStabilizedROMCtrlSurf(romAero, nF, nS, nfd, tau, dFdX, ctrlSurfBlock, margin: float = 1e-8,
                              mu: float = 1e-8, start: float = None, useMatlab: bool = False,
-                             acceptInaccurate: bool = False, maximum_its: bool = 10, **kwargs):
-  romAeroS, dFdXS, X, p, Es = getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin, mu, True, start, useMatlab, acceptInaccurate, maximum_its, **kwargs)
+                             acceptInaccurate: bool = False, maximum_its: bool = 10, p0: int = 1,
+                             solver: str = 'sdpt3', opts: dict = {}, **kwargs):
+  romAeroS, dFdXS, X, p, Es = getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin, mu,
+                                                   True, start, useMatlab, acceptInaccurate,
+                                                   maximum_its, p0, solver, opts, **kwargs)
   ids = np.concatenate((np.arange(nfd), np.arange(nF, (nF + 2 * nS))))
   ctrlSurfBlockS = ctrlSurfBlock[ids, :]
   ctrlSurfBlockS[0:nfd, :] = X.T @ ctrlSurfBlock[0:(nfd + p), :]
@@ -597,7 +616,7 @@ def buildDualBasisROMAero(f1: str, f2: str):
   rom2, dFdX2, ctrlSurf2, nF2, nS2 = readROMAeroCtrlSurf(f2)
 
   if nS1 != nS2:
-    raise ValueError('Structural subsystems size mismatch ({} vs {} for ROM 1 and ROM 2'.format(nS1, nS2))
+    raise ValueError('Structural subsystems size mismatch ({} vs {} for ROM 1 and ROM 2)'.format(nS1, nS2))
   
   isdFdX = dFdX1 is not None and dFdX2 is not None
   if isdFdX:
@@ -799,3 +818,40 @@ def buildMultiBasisROMAero(fNs: np.ndarray, mIDs: np.ndarray, isCS: np.ndarray =
     ctrlSurf = None
   
   return rom, dFdX, ctrlSurf, nF, nS
+
+def relativeErrorOfSolutionIntegral(tROM: np.ndarray, xROM: np.ndarray, tHDM: np.ndarray, xHDM: np.ndarray):
+  romInt = simps(np.abs(xROM), tROM, axis=0)
+  hdmInt = simps(np.abs(xHDM), tHDM, axis=0)
+
+  err = np.abs((romInt - hdmInt) / hdmInt)
+
+  return romInt, hdmInt, err
+
+def saveComponentWiseRelativeErrors(file: str, romSizes: np.ndarray, romInt: np.ndarray, err: np.ndarray,
+                                    nHDM: int = np.inf, hdmInt: np.ndarray = None):
+  if hdmInt is not None and not np.isinf(nHDM):
+    nd = len("%d" % nHDM)
+  else:
+    nd = len("%d" % np.max(romSizes))
+  
+  nC = romInt.shape[1]
+
+  with open(file, 'w') as f:
+    f.write('isHDM n n_Components Integrals Relative_Errors\n')
+
+    if hdmInt is not None:
+      f.write('1 %*d %d' % (nd, nHDM, nC))
+      for i in range(nC):
+        f.write(' %.16e' % hdmInt[i])
+      for i in range(nC):
+        f.write(' %.16e' % 0.0)
+      f.write('\n')
+    
+    for j in range(romSizes.size):
+      n = romSizes[j]
+      f.write('0 %*d %d' % (nd, n, nC))
+      for i in range(nC):
+        f.write(' %.16e' % romInt[j,i])
+      for i in range(nC):
+        f.write(' %.16e' % err[j,i])
+      f.write('\n')
