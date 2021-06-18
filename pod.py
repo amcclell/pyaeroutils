@@ -413,7 +413,7 @@ def forcedLinearizedROM(H: np.ndarray, B: np.ndarray, C: np.ndarray, P: np.ndarr
 
   return t, w, dF, u, udot, ucs, ucsdot
 
-def stabilizeROM(Ma, Me, k, p, tau, mu, solver, opts, eng = None, **kwargs):
+def stabilizeROM(Ma, Me, k, p, tau, mu, solver, precision, opts, eng = None, **kwargs):
   if eng is None:
     Q = np.eye(k, dtype=np.float)
     P11 = cp.Variable((k, k), symmetric=True)
@@ -438,7 +438,7 @@ def stabilizeROM(Ma, Me, k, p, tau, mu, solver, opts, eng = None, **kwargs):
     tauM = float(tau)
     muM = float(mu)
 
-    XM, statusM = eng.stabilizeROM(MaM, MeM, kM, pM, tauM, muM, solver, opts, nargout=2)
+    XM, statusM = eng.stabilizeROM(MaM, MeM, kM, pM, tauM, muM, solver, precision, opts, nargout=2)
     X = np.array(XM._data.tolist())
     X = X.reshape(XM.size, order='F')
     status = str(statusM).lower()
@@ -447,7 +447,7 @@ def stabilizeROM(Ma, Me, k, p, tau, mu, solver, opts, eng = None, **kwargs):
 def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float = 1e-8,
                      outputAll: bool = False, start: float = None, useMatlab: bool = False,
                      acceptInaccurate: bool = False, maximum_its: int = 10, p0: int = 1,
-                     solver: str = 'sdpt3', opts: dict = {}, **kwargs):
+                     solver: str = 'sdpt3', precision: str = 'default', opts: dict = {}, **kwargs):
   if start is None:
     start = timer()
   k = nfd
@@ -485,7 +485,7 @@ def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float 
     Me = np.eye(k + p, k)
     Ma = romAero[0:(k + p), 0:k] + margin * Me
 
-    X, status = stabilizeROM(Ma, Me, k, p, tau, mu, solver, opts, eng, **kwargs)
+    X, status = stabilizeROM(Ma, Me, k, p, tau, mu, solver, precision, opts, eng, **kwargs)
     print('k + p = {}, status = {}'.format(k + p, status), flush=True)
 
     if status in successMsgs:
@@ -521,10 +521,10 @@ def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float 
 def getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin: float = 1e-8, mu: float = 1e-8,
                          outputAll: bool = False, start: float = None, useMatlab: bool = False,
                          acceptInaccurate: bool = False, maximum_its: bool = 10, p0: int = 1,
-                         solver: str = 'sdpt3', opts: dict = {}, **kwargs):
+                         solver: str = 'sdpt3', precision: str = 'default', opts: dict = {}, **kwargs):
   romAeroS, X, p, Es = getStabilizedROM(romAero, nF, nS, nfd, tau, margin, mu, True, start,
                                         useMatlab, acceptInaccurate, maximum_its, p0, solver,
-                                        opts, **kwargs)
+                                        precision, opts, **kwargs)
   dFdXS = dFdX.copy()
   if outputAll:
     return romAeroS, dFdXS, X, p, Es
@@ -533,10 +533,10 @@ def getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin: float = 1e-8, 
 def getStabilizedROMCtrlSurf(romAero, nF, nS, nfd, tau, dFdX, ctrlSurfBlock, margin: float = 1e-8,
                              mu: float = 1e-8, start: float = None, useMatlab: bool = False,
                              acceptInaccurate: bool = False, maximum_its: bool = 10, p0: int = 1,
-                             solver: str = 'sdpt3', opts: dict = {}, **kwargs):
+                             solver: str = 'sdpt3', precision: str = 'default', opts: dict = {}, **kwargs):
   romAeroS, dFdXS, X, p, Es = getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin, mu,
                                                    True, start, useMatlab, acceptInaccurate,
-                                                   maximum_its, p0, solver, opts, **kwargs)
+                                                   maximum_its, p0, solver, precision, opts, **kwargs)
   ids = np.concatenate((np.arange(nfd), np.arange(nF, (nF + 2 * nS))))
   ctrlSurfBlockS = ctrlSurfBlock[ids, :]
   ctrlSurfBlockS[0:nfd, :] = X.T @ ctrlSurfBlock[0:(nfd + p), :]

@@ -1,4 +1,4 @@
-function [X,cvx_status] = stabilizeROM(Ma,Me,k,p,tau,mu,solver,opts)
+function [X,cvx_status] = stabilizeROM(Ma,Me,k,p,tau,mu,solver,precision,opts)
 
   if (nargin < 6)
     mu = 1e-8;
@@ -22,6 +22,7 @@ function [X,cvx_status] = stabilizeROM(Ma,Me,k,p,tau,mu,solver,opts)
   else
     error('*** Error: solver %s is not supported (currently only supports free solvers)', solver);
   end
+  cvx_precision(precision);
   if ~isempty(f)
     c = struct2cell(opts);
     for i = 1:length(f)
