@@ -831,25 +831,44 @@ def saveComponentWiseRelativeErrors(file: str, romSizes: np.ndarray, romInt: np.
                                     nHDM: int = np.inf, hdmInt: np.ndarray = None):
   if hdmInt is not None and not np.isinf(nHDM):
     nd = len("%d" % nHDM)
+  elif hdmInt is not None:
+    nd = len("%d" % np.max(romSizes))
+    nHDM = -1
   else:
     nd = len("%d" % np.max(romSizes))
   
   nC = romInt.shape[1]
+  fmt = " %" + str(nd) + "d"
+
+  if romSizes.ndim == 1:
+    nHDM = np.array([nHDM])
+    romSizes = romSizes.reshape((romSizes.size, 1))
+    nStr = ' n'
+    nRep = 1
+  else:
+    nHDM = np.array([nHDM, -1])
+    nRep = romSizes.shape[1]
+    nStr = ''
+    for i in range(nRep):
+      nStr += ' n_%d' % (i + 1)
+
+  fmt *= nRep
+  fmt2 = '%d' + fmt + ' %d'
 
   with open(file, 'w') as f:
-    f.write('isHDM n n_Components Integrals Relative_Errors\n')
+    f.write('isHDM%s n_Components Integrals Relative_Errors\n' % nStr)
 
     if hdmInt is not None:
-      f.write('1 %*d %d' % (nd, nHDM, nC))
+      f.write(fmt2 % (1, *nHDM, nC))
       for i in range(nC):
         f.write(' %.16e' % hdmInt[i])
       for i in range(nC):
         f.write(' %.16e' % 0.0)
       f.write('\n')
     
-    for j in range(romSizes.size):
+    for j in range(romSizes.shape[0]):
       n = romSizes[j]
-      f.write('0 %*d %d' % (nd, n, nC))
+      f.write(fmt2 % (0, *n, nC))
       for i in range(nC):
         f.write(' %.16e' % romInt[j,i])
       for i in range(nC):
