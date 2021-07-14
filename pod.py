@@ -4,6 +4,10 @@ import matplotlib.pyplot as plt
 import os
 from timeit import default_timer as timer
 import pyaeroutils.xpost_utils as xpu
+from pyaeroutils.usatm import Unit, USStandardAtmosphere
+import pyaeroutils.plot_utils as plu
+from pyaeroutils.trim.ioutil import safeCall
+from string import Template
 from scipy.linalg import block_diag
 from scipy.integrate import simps
 
@@ -874,3 +878,112 @@ def saveComponentWiseRelativeErrors(file: str, romSizes: np.ndarray, romInt: np.
       for i in range(nC):
         f.write(' %.16e' % err[j,i])
       f.write('\n')
+
+def basisConvergenceHPCS(prefix: str = "results/", subDir: str = "Standard/", fNamePrefix: str = "ROMAero_", all_str: str = 'All', fExt: str = ".txt",
+                         sizes: np.ndarray = None, colors: np.ndarray = None, lineTypes: np.ndarray = None, label: str = "Standard",
+                         alt_unit: Unit = Unit.M, prob_unit: Unit = Unit.M, alt: float = 0., gamma: float = 1.4, Vref: float = 30., dt: float = 1e-3,
+                         nT: int = 1000, freq: np.ndarray = None, amp: np.ndarray = None, freqcs: np.ndarray = None, ampcs: np.ndarray = None,
+                         titles: np.ndarray = None, xlabels: np.ndarray = None, ylabels: np.ndarray = None, axes: np.ndarray = None, start: float = None,
+                         margin: float = 0.0, tau: float = 1e-5, redo: bool = False, savePrefix: np.ndarray = None, figF: np.ndarray = None, figExt: str = ".png",
+                         useMatlab: bool = False, solver: str = 'sdpt3', precision: str = 'default', opts: dict = {}, alt_solver: str = 'sedumi', alt_opts: dict = {},
+                         alt_precision: str = 'default', acceptInaccurate: bool = False, maximum_its: int = 10, tHDM: np.ndarray = None, dFHDM: np.ndarray = None,
+                         nHDM: int = np.inf, runAlt = True, **kwargs):
+  if start is None:
+    start = xpu.timer()
+  print('Starting basisConvergenceHPCS for "{}"\n------------------------------------------------------------------------'.format(label), flush=True)
+  if useMatlab:
+    fExtPre = ".Matlab"
+    figExt = ".Matlab" + figExt
+  else:
+    fExtPre = ""
+  ftmp = Template(prefix + subDir + fNamePrefix + '${size}' + '${extPre}' + fExt)
+  f = ftmp.substitute(size=all_str, extPre="")
+
+  rom, dFdX, ctrlSurf, nFAll, nS = readROMAeroCtrlSurf(f)
+  nCS = ctrlSurf.shape[1] // 2
+
+  usatm = USStandardAtmosphere(alt_unit, prob_unit)
+  rhoref, Pref, Tref, cref, gref, muref, kapparef = usatm.calculateUSStandardAtmosphere(alt)
+
+  nSizes = sizes.size
+  wAll = np.empty((nSizes, ), dtype=object)
+  dFAll = np.empty_like(wAll)
+  if dFHDM is not None and tHDM is not None:
+    romIntAll = np.empty((nSizes, nS))
+    errAll = np.empty_like(romIntAll)
+  else:
+    romIntAll = None
+    errAll = None
+  hdmInt = None
+  t = None
+  u = None
+  udot = None
+  ucs = None
+  ucsdot = None
+  ax = axes
+  
+  for i in range(nSizes):
+    nF = sizes[i]
+
+    isStable = checkStability(rom[0:nF, 0:nF])
+    fN = ftmp.substitute(size='Stable_{}'.format(nF), extPre=fExtPre)
+    if not isStable:
+      try:
+        if redo:
+          raise Exception
+        romStable, dFdXStable, ctrlSurfStable, tmpF, tmpS = readROMAeroCtrlSurf(fN)
+      except Exception:
+        try:
+          romStable, dFdXStable, ctrlSurfStable = getStabilizedROMCtrlSurf(rom, nFAll, nS, nF, tau, dFdX, ctrlSurf, margin=margin, start=start,
+                                                                               useMatlab=useMatlab, acceptInaccurate=acceptInaccurate, solver=solver,
+                                                                               precision=precision, opts=opts, maximum_its=maximum_its, **kwargs)
+        except RuntimeError:
+          if not runAlt:
+            raise
+          romStable, dFdXStable, ctrlSurfStable = getStabilizedROMCtrlSurf(rom, nFAll, nS, nF, tau, dFdX, ctrlSurf, margin=margin, start=start,
+                                                                               useMatlab=useMatlab, acceptInaccurate=True, solver=alt_solver,
+                                                                               precision=alt_precision, opts=alt_opts, maximum_its=maximum_its, **kwargs)
+    else:
+      romStable, dFdXStable, ctrlSurfStable = extractSubROMCtrlSurf(rom, dFdX, ctrlSurf, nFAll, nS, nF)
+    
+    writeROMAeroCtrlSurf(fN, romStable, nF, nS, dFdXStable, ctrlSurfStable)
+    
+    isStable = checkStability(romStable[0:nF, 0:nF])
+    if not isStable:
+      print("ROM still unstable for nF = {}    Elapsed Time: {}".format(nF, xpu.timer() - start), flush=True)
+      continue
+    
+    romDim, dFdXDim, ctrlSurfDim = dimROMAeroCtrlSurf(romStable, nF, nS, Pref, rhoref, dFdXStable, ctrlSurfStable)
+    H, B, C, P, K, Py, Bcs, Ccs, Pycs = extractOperatorsCtrlSurf(romDim, dFdXDim, ctrlSurfDim, nF, nS)
+
+    t, wAll[i], dFAll[i], u, udot, ucs, ucsdot = forcedLinearizedROM(H, B, C, P, dt, nT, amp, freq, Py, nCS, Bcs, Ccs, ampcs, freqcs, Pycs)
+
+    plabel = '{}: n = {}'.format(label, nF)
+    ax = plu.plotForcesSeparate(t, dFAll[i], titles=titles, xlabels=xlabels, ylabels=ylabels, color=colors[i], lineType=lineTypes[i], legend=plabel, axes=ax)
+    print('Size: {}    Elapsed Time: {}'.format(nF, xpu.timer() - start), flush=True)
+
+    safeCall('mkdir -p ' + savePrefix)
+
+    for j in range(6):
+      ax[j].get_figure().savefig(savePrefix + figF[j] + figExt)
+
+    if dFHDM is not None and tHDM is not None:
+      romIntAll[i], hdmInt, errAll[i] = relativeErrorOfSolutionIntegral(t, dFAll[i], tHDM, dFHDM)
+    
+  if dFHDM is not None and tHDM is not None:
+    j = np.nan
+    avgErrMin = np.inf
+    for i in range(nSizes):
+      avgErr = np.mean(errAll[i])
+      if avgErr < avgErrMin:
+        avgErrMin = avgErr
+        j = i
+    
+    print('Minimum average error: {}, Size: {}'.format(avgErrMin, sizes[j]))
+
+    filePrefix = 'postpro/' + subDir
+    safeCall('mkdir -p ' + filePrefix)
+    file = filePrefix + 'RelativeErrorsOfSolutionIntegral.txt'
+    saveComponentWiseRelativeErrors(file, sizes, romIntAll, errAll, nHDM, hdmInt)
+    
+  return  t, wAll, dFAll, u, udot, ucs, ucsdot, romIntAll, hdmInt, errAll, ax

@@ -219,15 +219,16 @@ def readXpost(filename: str, start: float = None, shared: bool = False):
     tags, output = readXpostCore(lines[2:], nVectors, nNodes, start, shared)
   return header, tags, output
 
-def readXpostSubset(filename: str, nVectors: int, start: float = None, shared: bool = False):
+def readXpostSubset(filename: str, nVectors: int, startVector: int = 0, start: float = None, shared: bool = False):
   if start is None:
     start = timer()
   
   with open(filename) as f:
     header = f.readline().strip()
     nNodes = np.int(f.readline().strip())
+    startID = startVector * (nNodes + 1)
     nLines = nVectors * (nNodes + 1)
-    lines = np.array(list(islice(f, nLines)))
+    lines = np.array(list(islice(f, startID, startID + nLines)))
     end = timer()
     print('Read {} lines from {}    Elapsed Time: {}'.format(nLines, filename, end - start), flush=True)
 
@@ -317,3 +318,48 @@ def readLiftAndDrag(filename: str):
   t = tmp[:,1]
   liftAndDrag = tmp[:,4:-1]
   return t, liftAndDrag
+
+def readGenericTopFile(filename: str, start: float = None, verbose: bool = False):
+  if start is None:
+    start = timer()
+  
+  labelNo = getLabelLineNo(filename)
+  elements = dict()
+
+  with open(filename) as f:
+    lines = f.readlines()
+  end = timer()
+  if verbose:
+    print('Read all lines from {} ... Elapsed Time: {}'.format(filename, end - start), flush=True)
+
+  nNodes = int(labelNo[0] - 2)
+  nodes = np.empty((nNodes, 3), dtype=np.float64)
+  j = 1
+  for i in range(nNodes):
+    line = lines[j]
+    j += 1
+    nodes[i] = np.fromstring(line, dtype=np.float64, sep=' ')[1:]
+    if (i + 1) % 500000 == 0:
+      end = timer()
+      if verbose:
+        print('Read {} nodes ... Elapsed Time: {}'.format(i + 1, end - start), flush=True)
+  if verbose:
+    print('Found {} nodes'.format(nNodes), flush=True)
+
+  cnt = 0
+  for k in np.arange(j, len(lines)):
+    line = lines[k]
+    if 'Elements' in line:
+      continue
+    tmp = np.fromstring(line, dtype=int, sep=' ')[2:]
+    nNpEl = tmp.size
+    if nNpEl not in elements:
+      elements[nNpEl] = np.empty((0, nNpEl), dtype=int)
+    elements[nNpEl] = np.vstack((elements[nNpEl], tmp))
+
+  for key in iter(elements):
+    elements[key] -= 1
+  
+  nNodesPerElement = np.array(list(elements.keys()), dtype=int)
+  elements = np.array(list(elements.values()))
+  return nodes, elements, nNodesPerElement
