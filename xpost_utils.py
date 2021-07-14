@@ -188,8 +188,8 @@ def readXpost(filename: str, start: float = None, shared: bool = False):
     print('Read all lines from {}    Elapsed Time: {}'.format(filename, end - start), flush=True)
     header = lines[0].strip()
     nNodes = np.int(lines[1].strip())
-    nLines = lines.shape[0]
-    nVectors = nLines // nNodes
+    nLines = lines[2:].shape[0]
+    nVectors = nLines // (nNodes + 1)
     nComp = np.atleast_1d(np.genfromtxt([lines[3]], dtype=np.float64)).shape[0]
 
   #   i = 3
