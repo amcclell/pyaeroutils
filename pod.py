@@ -614,10 +614,16 @@ def writePODVecs(fN, fNSV, header, rob, sv, dim):
       f.write('%e ' % sv[i])
     f.write('\n')
 
-def buildDualBasisROMAero(f1: str, f2: str):
+def buildDualBasisROMAero(f1: str = None, f2: str = None,
+                          rom1: np.ndarray = None, dFdX1: np.ndarray = None, ctrlSurf1: np.ndarray = None, nF1: int = None, nS1: int = None,
+                          rom2: np.ndarray = None, dFdX2: np.ndarray = None, ctrlSurf2: np.ndarray = None, nF2: int = None, nS2: int = None):
   # File 2 is assumed to be the ROM built for the control surfaces
-  rom1, dFdX1, ctrlSurf1, nF1, nS1 = readROMAeroCtrlSurf(f1)
-  rom2, dFdX2, ctrlSurf2, nF2, nS2 = readROMAeroCtrlSurf(f2)
+  if f1 is not None and f2 is not None:
+    rom1, dFdX1, ctrlSurf1, nF1, nS1 = readROMAeroCtrlSurf(f1)
+    rom2, dFdX2, ctrlSurf2, nF2, nS2 = readROMAeroCtrlSurf(f2)
+
+  if rom1 is None or rom2 is None:
+    raise ValueError('No valid ROMs loaded or given')
 
   if nS1 != nS2:
     raise ValueError('Structural subsystems size mismatch ({} vs {} for ROM 1 and ROM 2)'.format(nS1, nS2))
@@ -661,6 +667,30 @@ def buildDualBasisROMAero(f1: str, f2: str):
   nF = nF1 + nF2
   nS = nS1
 
+  return rom, dFdX, ctrlSurf, nF, nS
+
+def buildDualBasisSubROMAero(f1: str, f2: str, nFNew1: int = None, nFNew2: int = None):
+  rom1, dFdX1, ctrlSurf1, nF1, nS1 = readROMAeroCtrlSurf(f1)
+  rom2, dFdX2, ctrlSurf2, nF2, nS2 = readROMAeroCtrlSurf(f2)
+
+  if nFNew1 is None:
+    nFNew1 = nF1
+
+  if nFNew2 is None:
+    nFNew2 = nF2
+  
+  errTmp = Template('Desired basis ${type} size (${size}) is larger than basis ${type} maximum size (${maxsize})')
+  if nFNew1 > nF1:
+    raise ValueError(errTmp.substitute(type=1, size=nFNew1, maxsize=nF1))
+  if nFNew2 > nF2:
+    raise ValueError(errTmp.substitute(type=2, size=nFNew2, maxsize=nF2))
+
+  rom1s, dFdX1s, ctrlSurf1s = extractSubROMCtrlSurf(rom1, dFdX1, ctrlSurf1, nF1, nS1, nFNew1)
+  rom2s, dFdX2s, ctrlSurf2s = extractSubROMCtrlSurf(rom2, dFdX2, ctrlSurf2, nF2, nS2, nFNew2)
+
+  rom, dFdX, ctrlSurf, nF, nS = buildDualBasisROMAero(rom1=rom1s, dFdX1=dFdX1s, ctrlSurf1=ctrlSurf1s, nF1=nFNew1, nS1=nS1,
+                                                      rom2=rom2s, dFdX2=dFdX2s, ctrlSurf2=ctrlSurf2s, nF2=nFNew2, nS2=nS2)
+  
   return rom, dFdX, ctrlSurf, nF, nS
 
 def buildMultiBasisROMAero(fNs: np.ndarray, mIDs: np.ndarray, isCS: np.ndarray = None,
@@ -960,7 +990,6 @@ def basisConvergenceHPCS(prefix: str = "results/", subDir: str = "Standard/", fN
 
     plabel = '{}: n = {}'.format(label, nF)
     ax = plu.plotForcesSeparate(t, dFAll[i], titles=titles, xlabels=xlabels, ylabels=ylabels, color=colors[i], lineType=lineTypes[i], legend=plabel, axes=ax)
-    print('Size: {}    Elapsed Time: {}'.format(nF, xpu.timer() - start), flush=True)
 
     safeCall('mkdir -p ' + savePrefix)
 
@@ -969,6 +998,9 @@ def basisConvergenceHPCS(prefix: str = "results/", subDir: str = "Standard/", fN
 
     if dFHDM is not None and tHDM is not None:
       romIntAll[i], hdmInt, errAll[i] = relativeErrorOfSolutionIntegral(t, dFAll[i], tHDM, dFHDM)
+      print('Size: {}    Average Error: {}    Elapsed Time: {}'.format(nF, np.mean(errAll[i]), xpu.timer() - start), flush=True)
+    else:
+      print('Size: {}    Elapsed Time: {}'.format(nF, xpu.timer() - start), flush=True)
     
   if dFHDM is not None and tHDM is not None:
     j = np.nan
@@ -987,3 +1019,142 @@ def basisConvergenceHPCS(prefix: str = "results/", subDir: str = "Standard/", fN
     saveComponentWiseRelativeErrors(file, sizes, romIntAll, errAll, nHDM, hdmInt)
     
   return  t, wAll, dFAll, u, udot, ucs, ucsdot, romIntAll, hdmInt, errAll, ax
+
+def getStabilizedROMCtrlSurfMultiSize(prefix: str = "results/", subDir: str = "Standard/", fNamePrefix: str = "ROMAero_", all_str: str = 'All', fExt: str = ".txt",
+                                      sizes: np.ndarray = None, label: str = "Standard", start: float = None, margin: float = 0.0, tau: float = 1e-5, redo: bool = False,
+                                      useMatlab: bool = False, solver: str = 'sdpt3', precision: str = 'default', opts: dict = {}, alt_solver: str = 'sedumi', alt_opts: dict = {},
+                                      alt_precision: str = 'default', acceptInaccurate: bool = False, maximum_its: int = 10, runAlt = True, **kwargs):
+  if start is None:
+    start = xpu.timer()
+  print('Starting getStabilizedROMCtrlSurfMultiSize for "{}"\n------------------------------------------------------------------------'.format(label), flush=True)
+  if useMatlab:
+    fExtPre = ".Matlab"
+  else:
+    fExtPre = ""
+  ftmp = Template(prefix + subDir + fNamePrefix + '${size}' + '${extPre}' + fExt)
+  f = ftmp.substitute(size=all_str, extPre="")
+
+  rom, dFdX, ctrlSurf, nFAll, nS = readROMAeroCtrlSurf(f)
+  nCS = ctrlSurf.shape[1] // 2
+
+  nSizes = sizes.size
+  for i in range(nSizes):
+    nF = sizes[i]
+
+    isStable = checkStability(rom[0:nF, 0:nF])
+    fN = ftmp.substitute(size='Stable_{}'.format(nF), extPre=fExtPre)
+    if not isStable:
+      try:
+        if redo:
+          raise Exception
+        romStable, dFdXStable, ctrlSurfStable, tmpF, tmpS = readROMAeroCtrlSurf(fN)
+      except Exception:
+        try:
+          romStable, dFdXStable, ctrlSurfStable = getStabilizedROMCtrlSurf(rom, nFAll, nS, nF, tau, dFdX, ctrlSurf, margin=margin, start=start,
+                                                                               useMatlab=useMatlab, acceptInaccurate=acceptInaccurate, solver=solver,
+                                                                               precision=precision, opts=opts, maximum_its=maximum_its, **kwargs)
+        except RuntimeError:
+          if not runAlt:
+            raise
+          romStable, dFdXStable, ctrlSurfStable = getStabilizedROMCtrlSurf(rom, nFAll, nS, nF, tau, dFdX, ctrlSurf, margin=margin, start=start,
+                                                                               useMatlab=useMatlab, acceptInaccurate=True, solver=alt_solver,
+                                                                               precision=alt_precision, opts=alt_opts, maximum_its=maximum_its, **kwargs)
+    else:
+      romStable, dFdXStable, ctrlSurfStable = extractSubROMCtrlSurf(rom, dFdX, ctrlSurf, nFAll, nS, nF)
+    
+    writeROMAeroCtrlSurf(fN, romStable, nF, nS, dFdXStable, ctrlSurfStable)
+    
+    isStable = checkStability(romStable[0:nF, 0:nF])
+    if not isStable:
+      print("ROM still unstable for nF = {}    Elapsed Time: {}".format(nF, xpu.timer() - start), flush=True)
+      continue
+    print('Size: {}    Elapsed Time: {}'.format(nF, xpu.timer() - start), flush=True)
+
+def basisConvergenceStableCombo(prefix: str = "results/", subDirRBM: str = "RBM/", subDirCS: str = "CS/", fNamePrefix: str = "ROMAero_Stable_",
+                                postfix: str = '.Matlab', fExt: str = ".txt", sizesRBM: np.ndarray = None, sizesCS: np.ndarray = None, colors: np.ndarray = None,
+                                lineTypes: np.ndarray = None, label: str = "Standard", alt_unit: Unit = Unit.M, prob_unit: Unit = Unit.M, alt: float = 0.,
+                                dt: float = 1e-3, nT: int = 1000, freq: np.ndarray = None, amp: np.ndarray = None,
+                                freqcs: np.ndarray = None, ampcs: np.ndarray = None, titles: np.ndarray = None, xlabels: np.ndarray = None, ylabels: np.ndarray = None,
+                                axes: np.ndarray = None, start: float = None, savePrefix: np.ndarray = None, saveSubDir: np.ndarray = None, figF: np.ndarray = None,
+                                figExt: str = ".png", tHDM: np.ndarray = None, dFHDM: np.ndarray = None, nHDM: int = np.inf):
+  if start is None:
+    start = xpu.timer()
+  print('Starting basisConvergenceStableCombo for "{}"\n------------------------------------------------------------------------'.format(label), flush=True)
+
+  ftmp = Template(prefix + "${subDir}" + fNamePrefix + "${size}" + postfix + fExt)
+  sizesRBM = np.sort(sizesRBM)
+  sizesCS = np.sort(sizesCS)
+  nSizes = sizesRBM.size * sizesCS.size
+  comboSizes = np.empty((nSizes, 2), dtype=np.int)
+
+  f1 = ftmp.substitute(subDir=subDirRBM, size=sizesRBM[-1])
+  f2 = ftmp.substitute(subDir=subDirCS, size=sizesCS[-1])
+  rom, dFdX, ctrlSurf, nF, nS = buildDualBasisROMAero(f1, f2)
+  nCS = ctrlSurf.shape[1] // 2
+
+  if dFHDM is not None and tHDM is not None:
+    romIntAll = np.empty((nSizes, nS), dtype=np.float)
+    errAll = np.empty_like(romIntAll)
+  else:
+    romIntAll = None
+    errAll = None
+  
+  hdmInt = None
+  ax = axes
+
+  usatm = USStandardAtmosphere(alt_unit, prob_unit)
+  rhoref, Pref, Tref, cref, gref, muref, kapparef = usatm.calculateUSStandardAtmosphere(alt)
+
+  if saveSubDir is None:
+    saveSubDir = "ComboBlock_{}and{}".format(subDirRBM, subDirCS)
+
+  for i in range(sizesRBM.size):
+    for j in range(sizesCS.size):
+      k = np.ravel_multi_index((i, j), (sizesRBM.size, sizesCS.size))
+      nFRBM = sizesRBM[i]
+      nFCS = sizesCS[j]
+      comboSizes[k] = np.array([nFRBM, nFCS])
+
+      rom, dFdX, ctrlSurf, nF, nS = buildDualBasisSubROMAero(f1, f2, nFRBM, nFCS)
+
+      isStable = checkStability(rom[0:nF, 0:nF])
+      if not isStable:
+        print("ROM unstable for nFRBM = {} and nFCS = {}    Elapsed Time: {}".format(nFRBM, nFCS, xpu.timer() - start))
+        if dFHDM is not None and tHDM is not None:
+          errAll[k] = np.inf
+        continue
+
+      romDim, dFdXDim, ctrlSurfDim = dimROMAeroCtrlSurf(rom, nF, nS, Pref, rhoref, dFdX, ctrlSurf)
+      H, B, C, P, K, Py, Bcs, Ccs, Pycs = extractOperatorsCtrlSurf(romDim, dFdXDim, ctrlSurfDim, nF, nS)
+
+      t, w, dF, u, udot, ucs, ucsdot = forcedLinearizedROM(H, B, C, P, dt, nT, amp, freq, Py, nCS, Bcs, Ccs, ampcs, freqcs, Pycs)
+
+      plabel = '{}: n = {}'.format(label, nF)
+      ax = plu.plotForcesSeparate(t, dF, titles=titles, xlabels=xlabels, ylabels=ylabels, color=colors[i], lineType=lineTypes[i], legend=plabel, axes=ax)
+
+      safeCall('mkdir -p ' + savePrefix + saveSubDir)
+
+      for l in range(6):
+        ax[l].get_figure().savefig(savePrefix + saveSubDir + figF[l] + figExt)
+
+      if dFHDM is not None and tHDM is not None:
+        romIntAll[k], hdmInt, errAll[k] = relativeErrorOfSolutionIntegral(t, dF, tHDM, dFHDM)
+        print('Size RBM: {}    Size CS: {}    Average Error: {}    Elapsed Time: {}'.format(nFRBM, nFCS, np.mean(errAll[k]), xpu.timer() - start), flush=True)
+      else:
+        print('Size RBM: {}    Size CS: {}    Elapsed Time: {}'.format(nFRBM, nFCS, xpu.timer() - start), flush=True)
+    
+  if dFHDM is not None and tHDM is not None:
+    j = np.nan
+    avgErrMin = np.inf
+    for i in range(nSizes):
+      avgErr = np.mean(errAll[i])
+      if avgErr < avgErrMin:
+        avgErrMin = avgErr
+        j = i
+    
+    print('Minimum average error: {}, Size RBM: {}, Size CS: {}'.format(avgErrMin, comboSizes[j, 0], comboSizes[j, 1]))
+
+    filePrefix = 'postpro/' + saveSubDir
+    safeCall('mkdir -p ' + filePrefix)
+    file = filePrefix + 'RelativeErrorsOfSolutionIntegral.txt'
+    saveComponentWiseRelativeErrors(file, comboSizes, romIntAll, errAll, nHDM, hdmInt)
