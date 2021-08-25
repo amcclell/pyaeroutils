@@ -917,7 +917,7 @@ def basisConvergenceHPCS(prefix: str = "results/", subDir: str = "Standard/", fN
                          margin: float = 0.0, tau: float = 1e-5, redo: bool = False, savePrefix: np.ndarray = None, figF: np.ndarray = None, figExt: str = ".png",
                          useMatlab: bool = False, solver: str = 'sdpt3', precision: str = 'default', opts: dict = {}, alt_solver: str = 'sedumi', alt_opts: dict = {},
                          alt_precision: str = 'default', acceptInaccurate: bool = False, maximum_its: int = 10, tHDM: np.ndarray = None, dFHDM: np.ndarray = None,
-                         nHDM: int = np.inf, runAlt = True, **kwargs):
+                         nHDM: int = np.inf, runAlt: bool = True, stabilize: bool = True, **kwargs):
   if start is None:
     start = xpu.timer()
   print('Starting basisConvergenceHPCS for "{}"\n------------------------------------------------------------------------'.format(label), flush=True)
@@ -957,7 +957,7 @@ def basisConvergenceHPCS(prefix: str = "results/", subDir: str = "Standard/", fN
 
     isStable = checkStability(rom[0:nF, 0:nF])
     fN = ftmp.substitute(size='Stable_{}'.format(nF), extPre=fExtPre)
-    if not isStable:
+    if not isStable and stabilize:
       try:
         if redo:
           raise Exception
@@ -976,12 +976,13 @@ def basisConvergenceHPCS(prefix: str = "results/", subDir: str = "Standard/", fN
     else:
       romStable, dFdXStable, ctrlSurfStable = extractSubROMCtrlSurf(rom, dFdX, ctrlSurf, nFAll, nS, nF)
     
-    writeROMAeroCtrlSurf(fN, romStable, nF, nS, dFdXStable, ctrlSurfStable)
+    if stabilize:
+      writeROMAeroCtrlSurf(fN, romStable, nF, nS, dFdXStable, ctrlSurfStable)
     
-    isStable = checkStability(romStable[0:nF, 0:nF])
-    if not isStable:
-      print("ROM still unstable for nF = {}    Elapsed Time: {}".format(nF, xpu.timer() - start), flush=True)
-      continue
+      isStable = checkStability(romStable[0:nF, 0:nF])
+      if not isStable:
+        print("ROM still unstable for nF = {}    Elapsed Time: {}".format(nF, xpu.timer() - start), flush=True)
+        continue
     
     romDim, dFdXDim, ctrlSurfDim = dimROMAeroCtrlSurf(romStable, nF, nS, Pref, rhoref, dFdXStable, ctrlSurfStable)
     H, B, C, P, K, Py, Bcs, Ccs, Pycs = extractOperatorsCtrlSurf(romDim, dFdXDim, ctrlSurfDim, nF, nS)
@@ -1107,6 +1108,10 @@ def basisConvergenceStableCombo(prefix: str = "results/", subDirRBM: str = "RBM/
 
   if saveSubDir is None:
     saveSubDir = "ComboBlock_{}and{}".format(subDirRBM, subDirCS)
+    
+  fNprefix = prefix + saveSubDir + "Subset_RBM_{}_CS_{}/".format(sizesRBM[-1], sizesCS[-1])
+  safeCall('mkdir -p ' + fNprefix)
+  fNtmp = Template(fNprefix + "ROMAero_Combined_RBM_${nFRBM}_CS_${nFCS}" + fExt)
 
   for i in range(sizesRBM.size):
     for j in range(sizesCS.size):
@@ -1123,6 +1128,9 @@ def basisConvergenceStableCombo(prefix: str = "results/", subDirRBM: str = "RBM/
         if dFHDM is not None and tHDM is not None:
           errAll[k] = np.inf
         continue
+
+      fN = fNtmp.substitute(nFRBM=nFRBM, nFCS=nFCS)
+      writeROMAeroCtrlSurf(fN, rom, nF, nS, dFdX, ctrlSurf)
 
       romDim, dFdXDim, ctrlSurfDim = dimROMAeroCtrlSurf(rom, nF, nS, Pref, rhoref, dFdX, ctrlSurf)
       H, B, C, P, K, Py, Bcs, Ccs, Pycs = extractOperatorsCtrlSurf(romDim, dFdXDim, ctrlSurfDim, nF, nS)

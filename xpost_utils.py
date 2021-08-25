@@ -246,7 +246,7 @@ def undoReshape(input: np.ndarray, nC: int):
     raise ValueError('Number of components ({}) does not lead to an integer number of nodes ({})'.format(nC, nT / nC))
   return input.reshape((nV, nN, nC), order='C')
 
-def writeXpost(filename: str, header, tags, output):
+def writeXpost(filename: str, header, tags, output, outputInt = False):
   with open(filename, "w") as f:
     f.write('%s\n' % header)
     f.write('%d\n' % output.shape[1])
@@ -255,6 +255,9 @@ def writeXpost(filename: str, header, tags, output):
       f.write('%.16e\n' % tags[i])
       for j in range(output.shape[1]):
         vec = output[i, j]
+        if outputInt:
+          f.write(' %d' % vec[0])
+          vec = vec[1:]
         for v in vec:
           f.write(' % .16e' % v)
         f.write('\n')
