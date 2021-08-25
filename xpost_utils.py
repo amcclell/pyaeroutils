@@ -310,10 +310,19 @@ def splitTimesteps(filename: str, ext: str = '.xpost'):
     hi = '{}{}.{}{}'.format(s1, name, i, tail)
     writeXpost(fni, hi, np.atleast_1d(tags[i]), np.expand_dims(output[i], 0))
 
+def readForceAll(filename: str):
+  forceAll = np.loadtxt(filename, skiprows=1, dtype=np.float)
+  t = forceAll[:,1]
+  force = forceAll[:,4:10]
+  energy = forceAll[:,10]
+  PTM = forceAll[:,11:14]
+  xCP = forceAll[:,14:17]
+  return t, force, energy, PTM, xCP
+
 def readForce(filename: str):
   forceAll = np.loadtxt(filename, skiprows=1, dtype=np.float)
   t = forceAll[:,1]
-  force = forceAll[:,4:-1]
+  force = forceAll[:,4:10]
   return t, force
 
 def readLiftAndDrag(filename: str):
