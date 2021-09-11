@@ -442,7 +442,12 @@ def stabilizeROM(Ma, Me, k, p, tau, mu, solver, precision, opts, eng = None, **k
     tauM = float(tau)
     muM = float(mu)
 
-    XM, statusM = eng.stabilizeROM(MaM, MeM, kM, pM, tauM, muM, solver, precision, opts, nargout=2)
+    if not isinstance(precision, str):
+      precM = matlab.double(precision.tolist())
+    else:
+      precM = precision
+
+    XM, statusM = eng.stabilizeROM(MaM, MeM, kM, pM, tauM, muM, solver, precM, opts, nargout=2)
     X = np.array(XM._data.tolist())
     X = X.reshape(XM.size, order='F')
     status = str(statusM).lower()
