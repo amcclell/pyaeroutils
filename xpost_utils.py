@@ -262,6 +262,13 @@ def writeXpost(filename: str, header, tags, output, outputInt = False):
           f.write(' % .16e' % v)
         f.write('\n')
 
+def read1NodeAEROSOutput(filename: str):
+  tmp = np.loadtxt(filename, skiprows=1)
+  t = tmp[:,0].copy()
+  output = tmp[:,1:].copy()
+
+  return t, output
+
 def readGeneralizedOutput(filename: str):
   with open(filename) as f:
     lines = np.array(f.readlines())

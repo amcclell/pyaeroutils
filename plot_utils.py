@@ -272,7 +272,7 @@ def plotLatLong(t: np.ndarray, x: np.ndarray, v: np.ndarray, titles: np.ndarray 
                                          latLegends, suptitle, latAxes)
   latAxes = np.array([ax21, ax22, ax23, ax24], dtype=object)
 
-  return longAxes, latAxes
+  return np.hstack((longAxes, latAxes))
 
 def plotForces(t: np.ndarray, F: np.ndarray, titles: np.ndarray = None,
                 xlabels: np.ndarray = None, ylabels: np.ndarray = None,
