@@ -456,7 +456,8 @@ def stabilizeROM(Ma, Me, k, p, tau, mu, solver, precision, opts, eng = None, **k
 def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float = 1e-8,
                      outputAll: bool = False, start: float = None, useMatlab: bool = False,
                      acceptInaccurate: bool = False, maximum_its: int = 10, p0: int = 1,
-                     solver: str = 'sdpt3', precision: str = 'default', opts: dict = {}, **kwargs):
+                     solver: str = 'sdpt3', precision: str = 'default', opts: dict = {},
+                     cvxdir: str = os.path.expanduser('~') + '/matlab/cvx/', **kwargs):
   if start is None:
     start = timer()
   k = nfd
@@ -465,14 +466,13 @@ def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float 
 
   if useMatlab and foundMatlab:
     eng = matlab.engine.start_matlab()
-    cdir = eng.cd('/home/users/amcclell/matlab/cvx/')
+    cdir = eng.cd(cvxdir)
     eng.cvx_setup(nargout=0)
     odir = eng.cd(cdir)
     successMsgs = ["solved"]
     inaccurateMsgs = ["inaccurate/solved"]
     if acceptInaccurate:
       successMsgs.extend(inaccurateMsgs)
-    #eng.run('/home/users/amcclell/matlab/cvx/cvx_startup.m', nargout=0)
   elif useMatlab:
     print('*** Warning: "matlab" module not found. Using cvxpy instead.', flush=True)
     eng = None
@@ -530,10 +530,11 @@ def getStabilizedROM(romAero, nF, nS, nfd, tau, margin: float = 1e-8, mu: float 
 def getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin: float = 1e-8, mu: float = 1e-8,
                          outputAll: bool = False, start: float = None, useMatlab: bool = False,
                          acceptInaccurate: bool = False, maximum_its: bool = 10, p0: int = 1,
-                         solver: str = 'sdpt3', precision: str = 'default', opts: dict = {}, **kwargs):
+                         solver: str = 'sdpt3', precision: str = 'default', opts: dict = {},
+                         cvxdir: str = os.path.expanduser('~') + '/matlab/cvx/', **kwargs):
   romAeroS, X, p, Es = getStabilizedROM(romAero, nF, nS, nfd, tau, margin, mu, True, start,
                                         useMatlab, acceptInaccurate, maximum_its, p0, solver,
-                                        precision, opts, **kwargs)
+                                        precision, opts, cvxdir, **kwargs)
   dFdXS = dFdX.copy()
   if outputAll:
     return romAeroS, dFdXS, X, p, Es
@@ -542,10 +543,11 @@ def getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin: float = 1e-8, 
 def getStabilizedROMCtrlSurf(romAero, nF, nS, nfd, tau, dFdX, ctrlSurfBlock, margin: float = 1e-8,
                              mu: float = 1e-8, start: float = None, useMatlab: bool = False,
                              acceptInaccurate: bool = False, maximum_its: bool = 10, p0: int = 1,
-                             solver: str = 'sdpt3', precision: str = 'default', opts: dict = {}, **kwargs):
+                             solver: str = 'sdpt3', precision: str = 'default', opts: dict = {},
+                             cvxdir: str = os.path.expanduser('~') + '/matlab/cvx/', **kwargs):
   romAeroS, dFdXS, X, p, Es = getStabilizedROMdFdX(romAero, nF, nS, nfd, tau, dFdX, margin, mu,
                                                    True, start, useMatlab, acceptInaccurate,
-                                                   maximum_its, p0, solver, precision, opts, **kwargs)
+                                                   maximum_its, p0, solver, precision, opts, cvxdir, **kwargs)
   ids = np.concatenate((np.arange(nfd), np.arange(nF, (nF + 2 * nS))))
   ctrlSurfBlockS = ctrlSurfBlock[ids, :]
   ctrlSurfBlockS[0:nfd, :] = X.T @ ctrlSurfBlock[0:(nfd + p), :]
@@ -922,7 +924,7 @@ def basisConvergenceHPCS(prefix: str = "results/", subDir: str = "Standard/", fN
                          margin: float = 0.0, tau: float = 1e-5, redo: bool = False, savePrefix: np.ndarray = None, figF: np.ndarray = None, figExt: str = ".png",
                          useMatlab: bool = False, solver: str = 'sdpt3', precision: str = 'default', opts: dict = {}, alt_solver: str = 'sedumi', alt_opts: dict = {},
                          alt_precision: str = 'default', acceptInaccurate: bool = False, maximum_its: int = 10, tHDM: np.ndarray = None, dFHDM: np.ndarray = None,
-                         nHDM: int = np.inf, runAlt: bool = True, stabilize: bool = True, **kwargs):
+                         nHDM: int = np.inf, runAlt: bool = True, stabilize: bool = True, cvxdir: str = os.path.expanduser('~') + '/matlab/cvx/', **kwargs):
   if start is None:
     start = xpu.timer()
   print('Starting basisConvergenceHPCS for "{}"\n------------------------------------------------------------------------'.format(label), flush=True)
@@ -971,13 +973,13 @@ def basisConvergenceHPCS(prefix: str = "results/", subDir: str = "Standard/", fN
         try:
           romStable, dFdXStable, ctrlSurfStable = getStabilizedROMCtrlSurf(rom, nFAll, nS, nF, tau, dFdX, ctrlSurf, margin=margin, start=start,
                                                                                useMatlab=useMatlab, acceptInaccurate=acceptInaccurate, solver=solver,
-                                                                               precision=precision, opts=opts, maximum_its=maximum_its, **kwargs)
+                                                                               precision=precision, opts=opts, maximum_its=maximum_its, cvxdir=cvxdir, **kwargs)
         except RuntimeError:
           if not runAlt:
             raise
           romStable, dFdXStable, ctrlSurfStable = getStabilizedROMCtrlSurf(rom, nFAll, nS, nF, tau, dFdX, ctrlSurf, margin=margin, start=start,
                                                                                useMatlab=useMatlab, acceptInaccurate=True, solver=alt_solver,
-                                                                               precision=alt_precision, opts=alt_opts, maximum_its=maximum_its, **kwargs)
+                                                                               precision=alt_precision, opts=alt_opts, maximum_its=maximum_its, cvxdir=cvxdir, **kwargs)
     else:
       romStable, dFdXStable, ctrlSurfStable = extractSubROMCtrlSurf(rom, dFdX, ctrlSurf, nFAll, nS, nF)
     
@@ -994,13 +996,14 @@ def basisConvergenceHPCS(prefix: str = "results/", subDir: str = "Standard/", fN
 
     t, wAll[i], dFAll[i], u, udot, ucs, ucsdot = forcedLinearizedROM(H, B, C, P, dt, nT, amp, freq, Py, nCS, Bcs, Ccs, ampcs, freqcs, Pycs)
 
-    plabel = '{}: n = {}'.format(label, nF)
-    ax = plu.plotForcesSeparate(t, dFAll[i], titles=titles, xlabels=xlabels, ylabels=ylabels, color=colors[i], lineType=lineTypes[i], legend=plabel, axes=ax)
+    if savePrefix is not None:
+      plabel = '{}: n = {}'.format(label, nF)
+      ax = plu.plotForcesSeparate(t, dFAll[i], titles=titles, xlabels=xlabels, ylabels=ylabels, color=colors[i], lineType=lineTypes[i], legend=plabel, axes=ax)
 
-    safeCall('mkdir -p ' + savePrefix)
+      safeCall('mkdir -p ' + savePrefix)
 
-    for j in range(6):
-      ax[j].get_figure().savefig(savePrefix + figF[j] + figExt)
+      for j in range(6):
+        ax[j].get_figure().savefig(savePrefix + figF[j] + figExt)
 
     if dFHDM is not None and tHDM is not None:
       romIntAll[i], hdmInt, errAll[i] = relativeErrorOfSolutionIntegral(t, dFAll[i], tHDM, dFHDM)
@@ -1029,7 +1032,8 @@ def basisConvergenceHPCS(prefix: str = "results/", subDir: str = "Standard/", fN
 def getStabilizedROMCtrlSurfMultiSize(prefix: str = "results/", subDir: str = "Standard/", fNamePrefix: str = "ROMAero_", all_str: str = 'All', fExt: str = ".txt",
                                       sizes: np.ndarray = None, label: str = "Standard", start: float = None, margin: float = 0.0, tau: float = 1e-5, redo: bool = False,
                                       useMatlab: bool = False, solver: str = 'sdpt3', precision: str = 'default', opts: dict = {}, alt_solver: str = 'sedumi', alt_opts: dict = {},
-                                      alt_precision: str = 'default', acceptInaccurate: bool = False, maximum_its: int = 10, runAlt = True, **kwargs):
+                                      alt_precision: str = 'default', acceptInaccurate: bool = False, maximum_its: int = 10, runAlt = True,
+                                      cvxdir: str = os.path.expanduser('~') + '/matlab/cvx/', **kwargs):
   if start is None:
     start = xpu.timer()
   print('Starting getStabilizedROMCtrlSurfMultiSize for "{}"\n------------------------------------------------------------------------'.format(label), flush=True)
@@ -1058,13 +1062,13 @@ def getStabilizedROMCtrlSurfMultiSize(prefix: str = "results/", subDir: str = "S
         try:
           romStable, dFdXStable, ctrlSurfStable = getStabilizedROMCtrlSurf(rom, nFAll, nS, nF, tau, dFdX, ctrlSurf, margin=margin, start=start,
                                                                                useMatlab=useMatlab, acceptInaccurate=acceptInaccurate, solver=solver,
-                                                                               precision=precision, opts=opts, maximum_its=maximum_its, **kwargs)
+                                                                               precision=precision, opts=opts, maximum_its=maximum_its, cvxdir=cvxdir, **kwargs)
         except RuntimeError:
           if not runAlt:
             raise
           romStable, dFdXStable, ctrlSurfStable = getStabilizedROMCtrlSurf(rom, nFAll, nS, nF, tau, dFdX, ctrlSurf, margin=margin, start=start,
                                                                                useMatlab=useMatlab, acceptInaccurate=True, solver=alt_solver,
-                                                                               precision=alt_precision, opts=alt_opts, maximum_its=maximum_its, **kwargs)
+                                                                               precision=alt_precision, opts=alt_opts, maximum_its=maximum_its, cvxdir=cvxdir, **kwargs)
     else:
       romStable, dFdXStable, ctrlSurfStable = extractSubROMCtrlSurf(rom, dFdX, ctrlSurf, nFAll, nS, nF)
     

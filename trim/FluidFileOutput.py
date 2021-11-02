@@ -26,7 +26,7 @@ under Problem {{
 
 under Input {{
   Prefix = "";
-  GeometryPrefix = "/oak/stanford/groups/cfarhat/amcclell/FRG/MPC_SI/data/MeshFluid";
+  GeometryPrefix = "../../data/MeshFluid";
   Solution = "{sol:s}";
   RestartData = "{restart:s}";
 }}
@@ -169,9 +169,9 @@ under Problem {{
 
 under Input {{
   Prefix = "";
-  GeometryPrefix = "/oak/stanford/groups/cfarhat/amcclell/FRG/MPC_SI/data/MeshFluid";
+  GeometryPrefix = "../../data/MeshFluid";
   Solution = "{sol:s}";
-  ShapeDerivative = "/oak/stanford/groups/cfarhat/amcclell/FRG/MPC_SI/simulations/Hack1DegCSModes/references/MeshFluid.1deg.CSModes";
+  ShapeDerivative = "../../simulations/Hack1DegCSModes/references/MeshFluid.1deg.CSModes";
 }}
 
 under Output {{
